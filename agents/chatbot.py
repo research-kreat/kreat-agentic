@@ -4,6 +4,10 @@ import os, uuid
 from datetime import datetime
 import logging
 from bson import ObjectId
+from crewai import Agent, Task, Crew, Process
+import json
+import time
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -19,7 +23,7 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "kraft_db")
 class ChatBot:
     def __init__(self, socket_instance=None):
         """
-        Initialize the ChatBot with MongoDB integration and socket support
+        Initialize the ChatBot with MongoDB integration, socket support, and CrewAI agents
         
         Args:
             socket_instance: Optional SocketIO instance for real-time updates
@@ -33,7 +37,42 @@ class ChatBot:
         # Store socket instance for real-time updates
         self.socket = socket_instance
         
-        logger.info("ChatBot initialized with MongoDB")
+        # Initialize CrewAI agents
+        self.setup_agents()
+        
+        logger.info("ChatBot initialized with MongoDB and CrewAI agents")
+
+    def setup_agents(self):
+        """Set up CrewAI agents for different roles in the chat system"""
+        
+        # Idea Development Agent
+        self.idea_agent = Agent(
+            role="Idea Development Specialist",
+            goal="Help users develop innovative concepts and creative solutions",
+            backstory="You are an expert at brainstorming, refining ideas, and helping users think outside the box.",
+            verbose=True,
+            llm="azure/gpt-4o-mini"  # Using the same model as in scout_agent.py
+        )
+        
+        # Analysis Agent
+        self.analysis_agent = Agent(
+            role="Data Analysis Specialist",
+            goal="Extract patterns, trends and insights from information",
+            backstory="You excel at analyzing information, finding connections between concepts, and identifying opportunities.",
+            verbose=True,
+            llm="azure/gpt-4o-mini"
+        )
+        
+        # Implementation Agent
+        self.implementation_agent = Agent(
+            role="Implementation Strategist",
+            goal="Provide actionable steps to turn ideas into reality",
+            backstory="You specialize in breaking down concepts into practical implementation plans.",
+            verbose=True,
+            llm="azure/gpt-4o-mini"
+        )
+        
+        logger.info("CrewAI agents configured successfully")
 
     def create_session(self, session_type="idea", name=None):
         """
@@ -298,10 +337,214 @@ class ChatBot:
             return True
         
         return False
+        
+    def clean_text(self, text):
+        """Clean and normalize text for better processing"""
+        if not text:
+            return ""
+        text = str(text)
+        text = re.sub(r'\s+', ' ', text)  # Replace multiple whitespaces with single space
+        text = text.replace('\r\n', '\n').replace('\r', '\n')  # Normalize line breaks
+        return text.strip()  # Remove leading/trailing whitespace
+        
+    def get_conversation_context(self, session_id, max_messages=10):
+        """
+        Extract recent conversation history for context
+        
+        Args:
+            session_id (str): Session ID to get context for
+            max_messages (int): Maximum number of messages to include in context
+            
+        Returns:
+            str: Formatted conversation context
+        """
+        messages = self.get_messages(session_id)
+        
+        # Get the most recent messages (limited by max_messages)
+        recent_messages = messages[-max_messages:] if len(messages) > max_messages else messages
+        
+        # Format messages into a string context
+        context_parts = []
+        for msg in recent_messages:
+            role = msg.get("role", "").capitalize()
+            content = self.clean_text(msg.get("content", ""))
+            if content:
+                context_parts.append(f"{role}: {content}")
+                
+        return "\n\n".join(context_parts)
+    
+    def determine_session_focus(self, session_id):
+        """
+        Analyze conversation to determine the primary focus or topic
+        
+        Args:
+            session_id (str): Session ID to analyze
+            
+        Returns:
+            dict: Focus information with keywords and categories
+        """
+        messages = self.get_messages(session_id)
+        
+        # Concatenate all user messages
+        user_content = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                user_content += " " + self.clean_text(msg.get("content", ""))
+        
+        # Extract common words and phrases (simplified version)
+        words = user_content.lower().split()
+        word_counts = {}
+        for word in words:
+            # Skip short words and common stop words
+            if len(word) < 4 or word in ["this", "that", "with", "from", "have", "about"]:
+                continue
+            word_counts[word] = word_counts.get(word, 0) + 1
+        
+        # Get top keywords
+        keywords = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        # Determine potential categories (simplified)
+        categories = []
+        category_indicators = {
+            "product": ["product", "design", "create", "build", "prototype"],
+            "business": ["business", "market", "customer", "profit", "revenue"],
+            "technology": ["technology", "software", "platform", "algorithm", "system"],
+            "creative": ["creative", "innovative", "artistic", "novel", "unique"],
+            "problem": ["problem", "challenge", "issue", "solution", "resolve"]
+        }
+        
+        for category, indicators in category_indicators.items():
+            for indicator in indicators:
+                if indicator in user_content.lower():
+                    categories.append(category)
+                    break
+        
+        return {
+            "keywords": [k for k, v in keywords],
+            "categories": list(set(categories))  # Remove duplicates
+        }
+        
+    def process_with_crew(self, session_id, user_message, session_type):
+        """
+        Process message using CrewAI agents
+        
+        Args:
+            session_id (str): Session ID for the conversation
+            user_message (str): User's message
+            session_type (str): Type of session (idea, problem, etc.)
+            
+        Returns:
+            str: Generated response
+        """
+        # Get conversation context
+        conversation_context = self.get_conversation_context(session_id)
+        
+        # Get session focus
+        focus = self.determine_session_focus(session_id)
+        keywords = ", ".join(focus.get("keywords", []))
+        categories = ", ".join(focus.get("categories", []))
+        
+        # Create appropriate tasks based on session type
+        tasks = []
+        
+        if session_type == "idea":
+            # Define tasks for idea development session
+            idea_task = Task(
+                description=f"""
+                Help the user develop their innovative concept or creative idea.
+                
+                User Message: "{user_message}"
+                
+                Conversation Context:
+                {conversation_context}
+                
+                Session Focus:
+                - Keywords: {keywords}
+                - Categories: {categories}
+                
+                Your task is to:
+                1. Understand the user's idea or creative concept
+                2. Ask clarifying questions if needed
+                3. Suggest enhancements, variations, or novel approaches
+                4. Help overcome creative blocks
+                5. Provide constructive feedback that preserves the user's vision
+                
+                Respond conversationally as if you're a helpful brainstorming partner.
+                """,
+                agent=self.idea_agent,
+                expected_output="Conversational response that helps develop the user's idea"
+            )
+            
+            implementation_task = Task(
+                description=f"""
+                Review the idea and suggest practical implementation steps or considerations.
+                
+                User Message: "{user_message}"
+                
+                Conversation Context:
+                {conversation_context}
+                
+                Your task is to:
+                1. Identify practical considerations for implementing the idea
+                2. Suggest resources or tools that might help
+                3. Highlight potential challenges and ways to overcome them
+                
+                Keep your response focused on actionable insights.
+                """,
+                agent=self.implementation_agent,
+                expected_output="Practical implementation insights related to the idea"
+            )
+            
+            generic_task = Task(
+                description=f"""
+                Respond helpfully to the user's message.
+                
+                User Message: "{user_message}"
+                
+                Conversation Context:
+                {conversation_context}
+                
+                Your task is to provide a helpful, informative response that addresses
+                the user's query or continues the conversation naturally.
+                """,
+                agent=self.analysis_agent,
+                expected_output="Helpful response to the user's message"
+            )
+            
+            # tasks = generic_task or [idea_task, implementation_task]
+            tasks = [idea_task]
+
+        # Create and execute CrewAI crew
+        try:
+            crew = Crew(
+                agents=self.idea_agent,
+                tasks=tasks,
+                process=Process.sequential,
+                verbose=True
+            )
+            
+            # Log beginning of processing
+            logger.info(f"CrewAI processing started for session {session_id}")
+            if self.socket:
+                self.socket.emit("console_log", {
+                    "type": "info",
+                    "message": f"Processing message with AI agents...",
+                    "session_id": session_id
+                })
+            
+            # Run the crew
+            result = crew.kickoff()
+            
+            # Clean up and return the result
+            return str(result).strip()
+            
+        except Exception as e:
+            logger.error(f"Error in CrewAI processing: {str(e)}")
+            return f"I'm sorry, I encountered an issue while processing your message. Please try again."
 
     def process_chat(self, session_id, user_message):
         """
-        Process a user message and generate a response
+        Process a user message and generate a response using CrewAI
         
         Args:
             session_id (str): Session ID for the conversation
@@ -316,6 +559,10 @@ class ChatBot:
         # Store the user message
         self.add_message(session_id, "user", user_message)
         
+        # Get session info
+        session = self.get_session(session_id)
+        session_type = session.get("type", "idea") if session else "idea"
+        
         # Send typing indicator via socket if available
         if self.socket:
             self.socket.emit("typing_indicator", {
@@ -324,13 +571,8 @@ class ChatBot:
             })
         
         try:
-            # Simple response generator (placeholder for actual AI processing)
-            # In a real implementation, this would call out to an LLM API or use a local model
-            response = "I'm sorry, I cannot assist with that right now."
-            
-            # Add a small delay to simulate processing time
-            import time
-            time.sleep(1)
+            # Process with CrewAI
+            response = self.process_with_crew(session_id, user_message, session_type)
             
             # Add the assistant's response to the conversation
             assistant_message = self.add_message(session_id, "assistant", response)
