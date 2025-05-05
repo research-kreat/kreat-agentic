@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # MongoDB configuration
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-MONGO_DB = os.getenv("MONGO_DB", "kraft")
+MONGO_URI = os.getenv("MONGO_URI")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
 
 class ChatBot:
     def __init__(self, socket_instance=None):
@@ -26,9 +26,9 @@ class ChatBot:
         """
         # Set up MongoDB connection
         self.client = MongoClient(MONGO_URI)
-        self.db = self.client[MONGO_DB]
+        self.db = self.client[MONGO_DB_NAME]
         self.sessions_collection = self.db.sessions
-        self.messages_collection = self.db.conversation_chat
+        self.messages_collection = self.db.conversation_history
         
         # Set up CrewAI agent
         self.agent = Agent(
@@ -36,7 +36,7 @@ class ChatBot:
             goal="Guide users in developing innovative ideas and concepts",
             backstory="You're a creative and knowledgeable assistant specializing in idea development. You help users explore possibilities, refine concepts, and overcome creative blocks.",
             verbose=True,
-            llm=os.getenv("LLM_MODEL", "azure/gpt-4o-mini")
+            llm=os.getenv("model")
         )
         
         # Store socket instance for real-time updates
