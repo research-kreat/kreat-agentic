@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import os, uuid
 from datetime import datetime
 import logging
+from bson import ObjectId
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -12,8 +13,8 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # MongoDB configuration
-MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "kraft_db")
 
 class ChatBot:
     def __init__(self, socket_instance=None):
@@ -26,7 +27,7 @@ class ChatBot:
         # Set up MongoDB connection
         self.client = MongoClient(MONGO_URI)
         self.db = self.client[MONGO_DB_NAME]
-        self.sessions_collection = self.db.sessions
+        # Use a single collection for all session data
         self.messages_collection = self.db.conversation_history
         
         # Store socket instance for real-time updates
@@ -47,29 +48,41 @@ class ChatBot:
         """
         # Generate a unique session ID
         session_id = str(uuid.uuid4())
+        current_time = datetime.utcnow()
         
         # Create session document
         session = {
             "session_id": session_id,
             "type": session_type,
             "name": name or f"New {session_type.capitalize()} Session",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": current_time,
+            "updated_at": current_time,
             "message_count": 0,
-            "status": "active"
+            "status": "active",
+            "messages": []  # Store messages directly in the session document
         }
         
         # Insert into database
-        self.sessions_collection.insert_one(session)
+        result = self.messages_collection.insert_one(session)
         
         # Log creation
         logger.info(f"Created new session: {session_id}")
         
+        # Create a JSON-safe copy
+        session_copy = session.copy()
+        
+        # Add the _id field as a string
+        session_copy["_id"] = str(result.inserted_id)
+        
+        # Convert datetime objects to ISO format strings for JSON serialization
+        session_copy["created_at"] = session_copy["created_at"].isoformat()
+        session_copy["updated_at"] = session_copy["updated_at"].isoformat()
+        
         # Emit socket event if socket available
         if self.socket:
-            self.socket.emit("new_session_created", session)
+            self.socket.emit("new_session_created", session_copy)
         
-        return session
+        return session_copy
 
     def get_session(self, session_id):
         """
@@ -81,19 +94,28 @@ class ChatBot:
         Returns:
             dict: Session information or None if not found
         """
-        session = self.sessions_collection.find_one({"session_id": session_id})
+        session = self.messages_collection.find_one({"session_id": session_id})
         
         if session:
+            # Create a copy to avoid modifying the original document
+            session_copy = session.copy()
+            
             # Convert ObjectId to string for JSON serialization
-            if "_id" in session:
-                session["_id"] = str(session["_id"])
+            if "_id" in session_copy:
+                session_copy["_id"] = str(session_copy["_id"])
                 
             # Convert datetime objects to ISO strings
             for key in ["created_at", "updated_at"]:
-                if key in session and isinstance(session[key], datetime):
-                    session[key] = session[key].isoformat()
+                if key in session_copy and isinstance(session_copy[key], datetime):
+                    session_copy[key] = session_copy[key].isoformat()
+            
+            # Remove messages from session info when returning it
+            if "messages" in session_copy:
+                del session_copy["messages"]
+                
+            return session_copy
         
-        return session
+        return None
 
     def get_sessions(self, session_type=None, limit=10, skip=0):
         """
@@ -112,63 +134,78 @@ class ChatBot:
             query["type"] = session_type
             
         # Query database with sorting and pagination
-        cursor = self.sessions_collection.find(query).sort(
+        cursor = self.messages_collection.find(query).sort(
             "updated_at", -1  # Sort by most recent
         ).skip(skip).limit(limit)
         
         # Convert to list and prepare for JSON serialization
         sessions = []
         for session in cursor:
+            # Create a JSON-safe copy
+            session_copy = session.copy()
+            
             # Convert ObjectId to string
-            if "_id" in session:
-                session["_id"] = str(session["_id"])
+            if "_id" in session_copy:
+                session_copy["_id"] = str(session_copy["_id"])
                 
             # Convert datetime objects to ISO strings    
             for key in ["created_at", "updated_at"]:
-                if key in session and isinstance(session[key], datetime):
-                    session[key] = session[key].isoformat()
+                if key in session_copy and isinstance(session_copy[key], datetime):
+                    session_copy[key] = session_copy[key].isoformat()
+            
+            # Remove messages array to keep response smaller
+            if "messages" in session_copy:
+                del session_copy["messages"]
                     
-            sessions.append(session)
+            sessions.append(session_copy)
             
         return sessions
 
-    def get_messages(self, session_id, after_index=None, limit=100):
+    def get_messages(self, session_id, after=None, limit=100):
         """
         Get messages for a specific session
         
         Args:
             session_id (str): Session ID to get messages for
-            after_index (int): Only get messages after this index
+            after: Optional timestamp or index to only get messages after
             limit (int): Maximum number of messages to return
             
         Returns:
             list: List of message documents
         """
-        query = {"session_id": session_id}
+        session = self.messages_collection.find_one({"session_id": session_id})
         
-        # If after_index provided, only get newer messages
-        if after_index is not None:
-            query["index"] = {"$gt": int(after_index)}
+        if not session or "messages" not in session:
+            return []
             
-        # Query database with sorting
-        cursor = self.messages_collection.find(query).sort(
-            "timestamp", 1  # Sort by oldest first for proper ordering
-        ).limit(limit)
+        messages = session["messages"]
         
-        # Convert to list and prepare for JSON serialization
-        messages = []
-        for msg in cursor:
-            # Convert ObjectId to string
-            if "_id" in msg:
-                msg["_id"] = str(msg["_id"])
+        # Apply filtering if after parameter is provided
+        if after is not None:
+            try:
+                # If after is an index
+                if isinstance(after, str) and after.isdigit():
+                    after_index = int(after)
+                    messages = [msg for msg in messages if msg.get("index", 0) > after_index]
+                # If after is a timestamp
+                else:
+                    messages = [msg for msg in messages if msg.get("timestamp", "") > after]
+            except:
+                # If parsing fails, return all messages
+                pass
                 
-            # Convert timestamp to ISO string if needed
-            if "timestamp" in msg and isinstance(msg["timestamp"], datetime):
-                msg["timestamp"] = msg["timestamp"].isoformat()
+        # Apply limit
+        messages = messages[-limit:] if len(messages) > limit else messages
+        
+        # Convert timestamps to ISO strings if they're datetime objects
+        message_copies = []
+        for msg in messages:
+            msg_copy = msg.copy()
+            if "timestamp" in msg_copy and isinstance(msg_copy["timestamp"], datetime):
+                msg_copy["timestamp"] = msg_copy["timestamp"].isoformat()
+            message_copies.append(msg_copy)
                 
-            messages.append(msg)
-            
-        return messages
+        return message_copies
 
     def add_message(self, session_id, role, content):
         """
@@ -182,41 +219,48 @@ class ChatBot:
         Returns:
             dict: Added message document
         """
-        # Verify session exists
-        session = self.get_session(session_id)
+        # Get current timestamp
+        timestamp = datetime.utcnow()
+        
+        # Find the session
+        session = self.messages_collection.find_one({"session_id": session_id})
+        
         if not session:
             logger.error(f"Session not found: {session_id}")
             return None
             
-        # Get current message count for indexing
-        message_count = self.messages_collection.count_documents({"session_id": session_id})
+        # Get current message count
+        message_count = len(session.get("messages", []))
         
         # Create message document
         message = {
-            "session_id": session_id,
             "role": role,
             "content": content,
-            "timestamp": datetime.utcnow(),
+            "timestamp": timestamp,
             "index": message_count  # Zero-based index for ordering
         }
         
-        # Insert into database
-        result = self.messages_collection.insert_one(message)
-        message["_id"] = str(result.inserted_id)
-        message["timestamp"] = message["timestamp"].isoformat()
-        
-        # Update session document with new count and timestamp
-        self.sessions_collection.update_one(
+        # Add to messages array and update count/timestamp
+        result = self.messages_collection.update_one(
             {"session_id": session_id},
             {
-                "$set": {"updated_at": datetime.utcnow()},
+                "$push": {"messages": message},
+                "$set": {"updated_at": timestamp},
                 "$inc": {"message_count": 1}
             }
         )
         
+        if result.modified_count == 0:
+            logger.error(f"Failed to add message to session {session_id}")
+            return None
+            
+        # Convert timestamps to ISO format for JSON serialization
+        message_copy = message.copy()
+        message_copy["timestamp"] = message_copy["timestamp"].isoformat()
+        
         logger.info(f"Added {role} message to session {session_id}")
         
-        return message
+        return message_copy
 
     def clear_session(self, session_id):
         """
@@ -228,21 +272,22 @@ class ChatBot:
         Returns:
             bool: True if successful, False otherwise
         """
-        result = self.messages_collection.delete_many({"session_id": session_id})
+        timestamp = datetime.utcnow()
         
-        if result.deleted_count > 0:
-            # Reset message count in session
-            self.sessions_collection.update_one(
-                {"session_id": session_id},
-                {
-                    "$set": {
-                        "message_count": 0,
-                        "updated_at": datetime.utcnow()
-                    }
+        # Clear messages array and reset message count
+        result = self.messages_collection.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "messages": [],
+                    "message_count": 0,
+                    "updated_at": timestamp
                 }
-            )
-            
-            logger.info(f"Cleared {result.deleted_count} messages from session {session_id}")
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Cleared messages from session {session_id}")
             
             # Emit socket event if socket available
             if self.socket:
@@ -254,13 +299,13 @@ class ChatBot:
         
         return False
 
-    def process_chat(self, session_id, message_text):
+    def process_chat(self, session_id, user_message):
         """
         Process a user message and generate a response
         
         Args:
             session_id (str): Session ID for the conversation
-            message_text (str): User's message
+            user_message (str): User's message
             
         Returns:
             dict: Response from the assistant
@@ -269,7 +314,7 @@ class ChatBot:
         logger.info(f"Processing message in session {session_id}")
         
         # Store the user message
-        self.add_message(session_id, "user", message_text)
+        self.add_message(session_id, "user", user_message)
         
         # Send typing indicator via socket if available
         if self.socket:
@@ -281,7 +326,7 @@ class ChatBot:
         try:
             # Simple response generator (placeholder for actual AI processing)
             # In a real implementation, this would call out to an LLM API or use a local model
-            response = f"You said: {message_text}\n\nThis is a placeholder response from the KRAFT idea assistant. In the complete implementation, this would be generated by an AI model."
+            response = "I'm sorry, I cannot assist with that right now."
             
             # Add a small delay to simulate processing time
             import time
@@ -301,7 +346,7 @@ class ChatBot:
                 self.socket.emit("chat_response", {
                     "session_id": session_id,
                     "response": response,
-                    "timestamp": assistant_message["timestamp"]
+                    "timestamp": assistant_message["timestamp"] if assistant_message else datetime.utcnow().isoformat()
                 })
             
             # Return the response
