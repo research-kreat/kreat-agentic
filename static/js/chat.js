@@ -1,11 +1,10 @@
-let socket = null;
 let currentSessionId = null;
 let messageHistory = [];
 let isTyping = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-// DOM elements that will be accessed frequently
+// DOM elements
 let chatInput;
 let chatMessages;
 let sendButton;
@@ -14,7 +13,7 @@ let sessionCreated;
 let messageCount;
 let sessionsList;
 
-// Initialize on page load if this is the idea chat page
+// Initialize on page load
 document.addEventListener("DOMContentLoaded", () => {
     // Get DOM elements
     chatInput = document.getElementById("chat-input");
@@ -28,8 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Setup event listeners
     setupEventListeners();
     
-    // Initialize Socket.IO
-    initializeSocket();
+    // Initialize Socket.IO (already done in script.js)
     
     // Create or restore session
     initializeSession();
@@ -75,72 +73,6 @@ function setupEventListeners() {
     const newSessionBtn = document.getElementById("new-session-btn");
     if (newSessionBtn) {
         newSessionBtn.addEventListener("click", createNewSession);
-    }
-}
-
-function initializeSocket() {
-    // Connect to Socket.IO server
-    try {
-        socket = io.connect(window.location.origin);
-        
-        socket.on("connect", () => {
-            logToConsole("Connected to server", "system");
-            reconnectAttempts = 0;
-        });
-        
-        socket.on("disconnect", () => {
-            logToConsole("Disconnected from server", "warning");
-        });
-        
-        socket.on("error", (error) => {
-            logToConsole(`Socket error: ${error}`, "error");
-            attemptReconnect();
-        });
-        
-        // Listen for chat message responses
-        socket.on("chat_response", (data) => {
-            receiveMessage(data);
-        });
-        
-        // Listen for typing indicators
-        socket.on("typing_indicator", (data) => {
-            if (data.session_id === currentSessionId) {
-                showTypingIndicator(data.is_typing);
-            }
-        });
-        
-        // Listen for session updates
-        socket.on("session_update", (data) => {
-            if (data.session_id === currentSessionId) {
-                updateSessionInfo(data);
-            }
-        });
-        
-        // Listen for new sessions
-        socket.on("new_session_created", (data) => {
-            addSessionToList(data, true);
-        });
-        
-        // Listen for session list updates
-        socket.on("sessions_list", (data) => {
-            updateSessionsList(data);
-        });
-        
-    } catch (error) {
-        logToConsole(`Error initializing socket: ${error}`, "error");
-    }
-}
-
-function attemptReconnect() {
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttempts++;
-        logToConsole(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, "warning");
-        
-        setTimeout(() => {
-            initializeSocket();
-        }, 2000 * reconnectAttempts); // Exponential backoff
-    } else {
-        logToConsole("Maximum reconnection attempts reached. Please refresh the page.", "error");
     }
 }
 
@@ -456,11 +388,6 @@ function receiveMessage(data) {
     updateMessageCount();
     
     logToConsole("Received response from assistant", "info");
-    
-    // Process any follow-up actions
-    if (data.actions && data.actions.length > 0) {
-        processActions(data.actions);
-    }
 }
 
 function addMessageToUI(message) {
@@ -689,197 +616,4 @@ function exportChat() {
     setTimeout(() => URL.revokeObjectURL(url), 100);
     
     logToConsole("Chat exported to JSON", "info");
-}
-
-function processActions(actions) {
-    if (!actions || actions.length === 0) return;
-    
-    actions.forEach(action => {
-        switch (action.type) {
-            case "rename_session":
-                if (action.name) {
-                    renameSession(action.name);
-                }
-                break;
-                
-            case "suggest_followup":
-                if (action.suggestions && action.suggestions.length > 0) {
-                    showSuggestions(action.suggestions);
-                }
-                break;
-                
-            case "redirect":
-                if (action.url) {
-                    showRedirectPrompt(action.url, action.message);
-                }
-                break;
-                
-            default:
-                logToConsole(`Unknown action type: ${action.type}`, "warning");
-        }
-    });
-}
-
-function renameSession(name) {
-    if (!currentSessionId || !name) return;
-    
-    fetch(`/api/sessions/${currentSessionId}/rename`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ name })
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error("Failed to rename session");
-        }
-        return response.json();
-    })
-    .then(data => {
-        logToConsole(`Session renamed to: ${name}`, "info");
-        
-        // Update session in list
-        const sessionItem = document.getElementById(`session-${currentSessionId}`);
-        if (sessionItem) {
-            const titleEl = sessionItem.querySelector(".session-title");
-            if (titleEl) {
-                titleEl.textContent = name;
-            }
-        }
-    })
-    .catch(error => {
-        logToConsole(`Error renaming session: ${error}`, "error");
-    });
-}
-
-function showSuggestions(suggestions) {
-    if (!suggestions || suggestions.length === 0) return;
-    
-    // Create suggestions element
-    const suggestionsEl = document.createElement("div");
-    suggestionsEl.className = "message system suggestions";
-    
-    // Create content
-    let content = `<div class="message-content"><p>Here are some suggested follow-up questions:</p><div class="suggestion-buttons">`;
-    
-    suggestions.forEach(suggestion => {
-        content += `<button class="suggestion-button">${suggestion}</button>`;
-    });
-    
-    content += `</div></div>`;
-    suggestionsEl.innerHTML = content;
-    
-    // Add to chat
-    chatMessages.appendChild(suggestionsEl);
-    
-    // Add click handlers
-    const buttons = suggestionsEl.querySelectorAll(".suggestion-button");
-    buttons.forEach(button => {
-        button.addEventListener("click", () => {
-            chatInput.value = button.textContent;
-            chatInput.focus();
-            
-            // Remove suggestions after clicking
-            chatMessages.removeChild(suggestionsEl);
-        });
-    });
-    
-    // Scroll to bottom
-    scrollToBottom();
-}
-
-function showRedirectPrompt(url, message) {
-    const msg = message || `Would you like to continue to ${url}?`;
-    
-    // Create redirect element
-    const redirectEl = document.createElement("div");
-    redirectEl.className = "message system redirect";
-    
-    redirectEl.innerHTML = `
-        <div class="message-content">
-            <p>${msg}</p>
-            <div class="redirect-actions">
-                <a href="${url}" target="_blank" class="redirect-button">Open Link</a>
-                <button class="redirect-dismiss">Dismiss</button>
-            </div>
-        </div>
-    `;
-    
-    // Add to chat
-    chatMessages.appendChild(redirectEl);
-    
-    // Add dismiss handler
-    const dismissBtn = redirectEl.querySelector(".redirect-dismiss");
-    if (dismissBtn) {
-        dismissBtn.addEventListener("click", () => {
-            chatMessages.removeChild(redirectEl);
-        });
-    }
-    
-    // Scroll to bottom
-    scrollToBottom();
-}
-
-// Handle page visibility changes to detect when user returns to the page
-document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && currentSessionId) {
-        // Request any new messages that may have been sent while page was hidden
-        fetch(`/api/sessions/${currentSessionId}/messages?after=${messageHistory.length}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.messages && data.messages.length > 0) {
-                    // Add new messages to chat
-                    data.messages.forEach(msg => {
-                        // Check if message is already in history
-                        const exists = messageHistory.some(m => 
-                            m.timestamp === msg.timestamp && 
-                            m.content === msg.content && 
-                            m.role === msg.role
-                        );
-                        
-                        if (!exists) {
-                            messageHistory.push(msg);
-                            addMessageToUI(msg);
-                        }
-                    });
-                    
-                    // Update message count
-                    updateMessageCount();
-                }
-            })
-            .catch(error => {
-                logToConsole(`Error checking for new messages: ${error}`, "error");
-            });
-    }
-});
-
-// Handle page reload/close to save session state
-window.addEventListener("beforeunload", () => {
-    if (currentSessionId) {
-        // Use sendBeacon for reliable delivery even during page unload
-        navigator.sendBeacon(
-            `/api/sessions/${currentSessionId}/heartbeat`,
-            JSON.stringify({ last_active: new Date().toISOString() })
-        );
-    }
-});
-
-// Additional helper utility to log to the console display
-function logToConsole(message, type = "info") {
-    const consoleLog = document.getElementById("console-log");
-    if (!consoleLog) return;
-
-    const timestamp = new Date().toLocaleTimeString();
-    const logDiv = document.createElement("div");
-    logDiv.className = `log-message ${type}`;
-    logDiv.innerHTML = `<span class="log-timestamp">${timestamp}</span> ${message}`;
-
-    consoleLog.appendChild(logDiv);
-    consoleLog.scrollTop = consoleLog.scrollHeight;
-    
-    // Limit log size to prevent memory issues
-    while (consoleLog.children.length > 100) {
-        consoleLog.removeChild(consoleLog.children[0]);
-    }
 }
