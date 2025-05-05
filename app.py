@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template
-from agent.chatbot import ChatBot
+from agents.chatbot import ChatBot
 from dotenv import load_dotenv
 from flask_socketio import SocketIO
 import logging
