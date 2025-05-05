@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRAFT - Idea Development</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+</head>
+<body>
+    <div class="page-container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-lightbulb"></i>
+                <h1>KRAFT</h1>
+            </div>
+            <nav>
+                <button class="back-button" onclick="navigateTo('/')">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </button>
+                <div class="session-info">
+                    <span id="session-id">Session: </span>
+                    <button id="new-session-btn" class="secondary-button">
+                        <i class="fas fa-plus"></i> New Session
+                    </button>
+                </div>
+            </nav>
+        </header>
+
+        <main class="chat-container">
+            <div class="sidebar">
+                <div class="sidebar-header">
+                    <h3>Idea Development</h3>
+                    <p>Craft innovative concepts</p>
+                </div>
+                <div class="conversation-history">
+                    <h4>Recent Sessions</h4>
+                    <ul id="sessions-list">
+                        <!-- Sessions will be dynamically loaded here -->
+                        <li class="loading-sessions">Loading sessions...</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="chat-main">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <i class="fas fa-lightbulb"></i>
+                        <h2>Idea Assistant</h2>
+                    </div>
+                    <div class="chat-actions">
+                        <button id="export-chat-btn" class="action-button" title="Export Conversation">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button id="clear-chat-btn" class="action-button" title="Clear Chat">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="chat-messages" class="chat-messages">
+                    <!-- Welcome message -->
+                    <div class="message system">
+                        <div class="message-content">
+                            <p>Welcome to the Idea Development assistant. I can help you craft innovative concepts and solutions. What would you like to explore today?</p>
+                        </div>
+                    </div>
+                    <!-- Chat messages will appear here -->
+                </div>
+
+                <div class="chat-input-container">
+                    <textarea id="chat-input" placeholder="Type your message here..." rows="1"></textarea>
+                    <button id="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="panel-section">
+                    <h3>Session Information</h3>
+                    <div id="session-details">
+                        <p><strong>Created:</strong> <span id="session-created">-</span></p>
+                        <p><strong>Messages:</strong> <span id="message-count">0</span></p>
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <h3>Activity Log</h3>
+                    <div id="console-log" class="console-log">
+                        <!-- Logs will appear here -->
+                        <div class="log-message system">
+                            <span class="log-timestamp">System</span> Ready to assist with idea development
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
