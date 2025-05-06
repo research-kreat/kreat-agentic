@@ -95,6 +95,9 @@
 }
 
 .conversation-history .session-date {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
     font-size: 0.8rem;
     color: var(--gray-600);
 }
@@ -462,10 +465,11 @@
 }
 
 /* Delete button style */
-#delete-session-btn {
+.delete-session-btn {
     color: var(--danger-color);
+    background-color: transparent;
 }
 
-#delete-session-btn:hover {
-    background-color: rgba(220, 53, 69, 0.1);
+.delete-session-btn:hover {
+    color: rgba(220, 53, 69, 0.1);
 }

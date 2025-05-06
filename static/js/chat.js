@@ -76,7 +76,7 @@ function setupEventListeners() {
     // Delete session button
     const deleteSessionBtn = document.getElementById("delete-session-btn");
     if (deleteSessionBtn) {
-        deleteSessionBtn.addEventListener("click", deleteSession);
+        deleteSessionBtn.addEventListener("click", deleteSessionById);
     }
 }
 
@@ -166,14 +166,14 @@ function createNewSession() {
     });
 }
 
-function deleteSession() {
-    if (!currentSessionId) return;
+function deleteSessionById(sessionId) {
+    if (!sessionId) return;
     
     if (!confirm("Are you sure you want to delete this chat session? This action cannot be undone.")) {
         return;
     }
     
-    fetch(`/api/sessions/${currentSessionId}`, {
+    fetch(`/api/sessions/${sessionId}`, {
         method: "DELETE"
     })
     .then(response => {
@@ -183,16 +183,56 @@ function deleteSession() {
         return response.json();
     })
     .then(data => {
-        logToConsole(`Deleted session: ${currentSessionId}`, "system");
+        logToConsole(`Deleted session: ${sessionId}`, "system");
         
         // Remove from sessions list
-        const sessionItem = document.getElementById(`session-${currentSessionId}`);
+        const sessionItem = document.getElementById(`session-${sessionId}`);
         if (sessionItem) {
-            sessionItem.remove();
+            sessionItem.classList.add("deleting");
+            setTimeout(() => {
+                sessionItem.remove();
+            }, 500);
         }
         
-        // Create a new session
-        createNewSession();
+        // If this was the current session, update the UI
+        if (sessionId === currentSessionId) {
+            // Clear the current session ID
+            currentSessionId = null;
+            
+            // Clear the chat UI
+            if (chatMessages) {
+                chatMessages.innerHTML = `
+                    <div class="message system">
+                        <div class="message-content">
+                            <p>Session has been deleted. Please select another session from the sidebar or create a new one.</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Update session info display
+            if (sessionIdSpan) {
+                sessionIdSpan.textContent = "No active session";
+            }
+            
+            if (sessionCreated) {
+                sessionCreated.textContent = "-";
+            }
+            
+            if (messageCount) {
+                messageCount.textContent = "0";
+            }
+            
+            // Disable chat input
+            if (chatInput) {
+                chatInput.disabled = true;
+                chatInput.placeholder = "Please select or create a session to start chatting...";
+            }
+            
+            if (sendButton) {
+                sendButton.disabled = true;
+            }
+        }
     })
     .catch(error => {
         logToConsole(`Error deleting session: ${error}`, "error");
@@ -260,13 +300,25 @@ function addSessionToList(session, isNew = false) {
     const formattedDate = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
     li.innerHTML = `
-        <div class="session-title">${session.name || `Session ${session.session_id.substring(0, 8)}`}</div>
-        <div class="session-date">${formattedDate}</div>
+        <div class="session-content">
+            <div class="session-title">${session.name || `Session ${session.session_id.substring(0, 8)}`}</div>
+            <div class="session-date">${formattedDate}
+            <button class="delete-session-btn" title="Delete Session">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+            </div>
+        </div>
     `;
     
-    // Add click handler to load session
-    li.addEventListener("click", () => {
+    // Add click handler to load session (to the main content area only)
+    li.querySelector(".session-content").addEventListener("click", () => {
         loadSession(session.session_id);
+    });
+    
+    // Add click handler for delete button
+    li.querySelector(".delete-session-btn").addEventListener("click", (e) => {
+        e.stopPropagation(); // Prevent triggering the session loading
+        deleteSessionById(session.session_id);
     });
     
     // Add to list (new sessions at the top)
@@ -280,6 +332,7 @@ function addSessionToList(session, isNew = false) {
         sessionsList.appendChild(li);
     }
 }
+
 
 function updateSessionInfo(session) {
     if (!session) return;
