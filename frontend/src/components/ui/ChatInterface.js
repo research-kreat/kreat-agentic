@@ -9,15 +9,15 @@ import { useChatStore } from '../../store/chatStore';
 export default function ChatInterface() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const evtSourceRef = useRef(null);
+  
   const { 
     currentSessionId,
     messageHistory,
     isTyping,
     streamingMessage,
     addMessage,
-    setMessageHistory,
     addLog,
-    setIsTyping,
     startStreaming,
     appendToStream,
     endStreaming,
@@ -30,6 +30,15 @@ export default function ChatInterface() {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messageHistory, isTyping, streamingMessage]);
+
+  // Cleanup event source on unmount
+  useEffect(() => {
+    return () => {
+      if (evtSourceRef.current) {
+        evtSourceRef.current.close();
+      }
+    };
+  }, []);
 
   // Handle sending a message
   const handleSendMessage = async (content) => {
@@ -47,56 +56,60 @@ export default function ChatInterface() {
     startStreaming();
 
     try {
-      // Send message using POST method instead of GET
-      const response = await fetch('http://localhost:5000/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: content,
-          session_id: currentSessionId
-        })
-      });
-      
-      // Create a reader from the response body
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      
-      // Read the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
-        // Decode the chunk
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.chunk === '[DONE]') {
-                // Streaming complete
-                endStreaming();
-                addLog({
-                  type: 'info',
-                  message: 'Received complete response from assistant'
-                });
-              } else {
-                // Append chunk to streaming message
-                appendToStream(data.chunk);
-              }
-            } catch (error) {
-              console.error('Error parsing chunk:', error);
-            }
-          }
-        }
+      // Close any existing event source
+      if (evtSourceRef.current) {
+        evtSourceRef.current.close();
       }
+
+      // Create a new event source for streaming
+      const url = `http://localhost:5000/api/chat?message=${encodeURIComponent(content)}&session_id=${currentSessionId}`;
+      evtSourceRef.current = new EventSource(url);
+
+      evtSourceRef.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.chunk === '[DONE]') {
+            // Streaming complete
+            endStreaming();
+            evtSourceRef.current.close();
+            evtSourceRef.current = null;
+            
+            addLog({
+              type: 'info',
+              message: 'Received complete response from assistant'
+            });
+          } else {
+            // Append chunk to streaming message
+            appendToStream(data.chunk);
+          }
+        } catch (error) {
+          console.error('Error parsing chunk:', error);
+        }
+      };
+
+      evtSourceRef.current.onerror = (error) => {
+        console.error('EventSource error:', error);
+        endStreaming();
+        
+        if (evtSourceRef.current) {
+          evtSourceRef.current.close();
+          evtSourceRef.current = null;
+        }
+        
+        // Add error message
+        addMessage({
+          role: 'system',
+          content: `Error: Connection to server lost. Please try again.`,
+          timestamp: new Date().toISOString(),
+          error: true
+        });
+        
+        addLog({
+          type: 'error',
+          message: `Error streaming response: Connection failed`
+        });
+      };
     } catch (error) {
       console.error('Error sending message:', error);
       endStreaming();

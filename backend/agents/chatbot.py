@@ -1,3 +1,4 @@
+# This is the fixed implementation for the chatbot.py file
 from pymongo import MongoClient
 from datetime import datetime
 import logging
@@ -42,7 +43,8 @@ class ChatBot:
             llm=LLM(
                 model="azure/gpt-4o-mini",
                 temperature=0.7,
-                stream=True
+                stream=True,
+                callbacks=[self._token_callback]  # Add callback for token streaming
             ),
             memory=True
         )
@@ -50,7 +52,26 @@ class ChatBot:
         # Keep conversation memory indexed by session_id
         self.memory_cache = {}
         
+        # Dictionary to store token queues for active streaming sessions
+        self.token_queues = {}
+        
         logger.info("ChatBot initialized with MongoDB and CrewAI agent")
+
+    def _token_callback(self, token, **kwargs):
+        """Callback function for CrewAI to handle token streaming"""
+        # Get current session ID from thread local storage
+        current_session_id = getattr(threading.current_thread(), "session_id", None)
+        
+        if current_session_id and current_session_id in self.token_queues:
+            # Put token in the queue
+            self.token_queues[current_session_id].put(token)
+            
+            # Also emit via socket if available for real-time updates
+            if self.socket:
+                self.socket.emit("token_update", {
+                    "session_id": current_session_id,
+                    "token": token
+                })
 
     def _format_for_json(self, data):
         """Convert MongoDB document to JSON-safe format"""
@@ -381,6 +402,9 @@ class ChatBot:
             })
         
         try:
+            # Create a token queue for this session
+            self.token_queues[session_id] = Queue()
+            
             # Process with CrewAI
             task = self.create_task(session_type, user_message, session_id)
             
@@ -400,16 +424,24 @@ class ChatBot:
                     "session_id": session_id
                 })
             
-            token_queue = Queue()
-            
             def stream_generator():
+                # Store all tokens for saving the complete response later
+                collected_tokens = []
+                
+                # Create and start the crew process in a separate thread
                 def process_crew():
                     try:
+                        # Set thread-local session ID for the token callback
+                        threading.current_thread().session_id = session_id
+                        
+                        # Start the crew process
                         response = crew.kickoff()
+                        logger.info(f"CrewAI completed for session {session_id}: {response}")
                     except Exception as e:
                         logger.error(f"Error in crew kickoff: {str(e)}")
                     finally:
-                        token_queue.put(None)
+                        # Signal the end of streaming by putting None in the queue
+                        self.token_queues[session_id].put(None)
                 
                 # Start the processing thread
                 crew_thread = threading.Thread(target=process_crew)
@@ -418,11 +450,26 @@ class ChatBot:
                 
                 # Read tokens from the queue until we get a None (signal for end)
                 while True:
-                    token = token_queue.get()
+                    token = self.token_queues[session_id].get()
                     if token is None:
                         break
+                    
+                    # Collect token for the full response
+                    collected_tokens.append(token)
+                    
+                    # Yield token for streaming
                     yield token
-                    token_queue.task_done()
+                    
+                    # Mark the task as done in the queue
+                    self.token_queues[session_id].task_done()
+                
+                # Save the complete response to database
+                full_response = "".join(collected_tokens)
+                self.save_streamed_response(session_id, full_response)
+                
+                # Clean up the token queue for this session
+                if session_id in self.token_queues:
+                    del self.token_queues[session_id]
             
             # Return the streaming generator and session_id
             return stream_generator(), session_id
@@ -441,6 +488,10 @@ class ChatBot:
             error_message = f"I'm sorry, there was an error processing your request. Please try again."
             self.add_message(session_id, "system", error_message)
             
+            # Clean up the token queue for this session
+            if session_id in self.token_queues:
+                del self.token_queues[session_id]
+            
             # Return error
             def error_generator():
                 yield error_message
@@ -449,6 +500,11 @@ class ChatBot:
             
     def save_streamed_response(self, session_id, response_text):
         """Save the full streamed response to the database after streaming is complete"""
+        if not response_text.strip():
+            logger.warning(f"Empty response for session {session_id}, not saving to database")
+            return None
+            
+        logger.info(f"Saving complete response ({len(response_text)} chars) to database for session {session_id}")
         return self.add_message(session_id, "assistant", response_text)
             
     def close(self):

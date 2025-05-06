@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 
-export default function Header({ sessionId = null, isIdeaPage = false }) {
+export default function Header({ sessionId = null, isIdeaPage = false, handleNewChat = () => {} }) {
   const router = useRouter();
   
   return (
@@ -33,6 +33,7 @@ export default function Header({ sessionId = null, isIdeaPage = false }) {
               </span>
               <button
                 id="new-session-btn"
+                onClick={handleNewChat}
                 className="px-3 py-2 bg-gray-200 text-gray-700 rounded-md text-sm flex items-center gap-1 hover:bg-gray-300 transition duration-300"
               >
                 <i className="fas fa-plus"></i> New Session
