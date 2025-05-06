@@ -47,44 +47,56 @@ export default function ChatInterface() {
     startStreaming();
 
     try {
-      // Create event source for streaming
-      const eventSource = new EventSource(`http://localhost:5000/api/chat?session_id=${currentSessionId}&message=${encodeURIComponent(content)}`);
+      // Send message using POST method instead of GET
+      const response = await fetch('http://localhost:5000/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: content,
+          session_id: currentSessionId
+        })
+      });
       
-      eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      // Create a reader from the response body
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      // Read the stream
+      while (true) {
+        const { done, value } = await reader.read();
         
-        if (data.chunk === '[DONE]') {
-          // Streaming complete
-          eventSource.close();
-          endStreaming();
-          addLog({
-            type: 'info',
-            message: 'Received complete response from assistant'
-          });
-        } else {
-          // Append chunk to streaming message
-          appendToStream(data.chunk);
+        if (done) {
+          break;
         }
-      };
-      
-      eventSource.onerror = (error) => {
-        console.error('EventSource error:', error);
-        eventSource.close();
-        endStreaming();
         
-        // Add error message
-        addMessage({
-          role: 'system',
-          content: 'Error receiving response. Please try again.',
-          timestamp: new Date().toISOString(),
-          error: true
-        });
+        // Decode the chunk
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n\n');
         
-        addLog({
-          type: 'error',
-          message: 'Error in streaming response'
-        });
-      };
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.chunk === '[DONE]') {
+                // Streaming complete
+                endStreaming();
+                addLog({
+                  type: 'info',
+                  message: 'Received complete response from assistant'
+                });
+              } else {
+                // Append chunk to streaming message
+                appendToStream(data.chunk);
+              }
+            } catch (error) {
+              console.error('Error parsing chunk:', error);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       endStreaming();

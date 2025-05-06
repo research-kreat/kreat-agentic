@@ -65,7 +65,7 @@ export default function ChatInput({ onSendMessage, disabled = false }) {
         className={`ml-3 w-10 h-10 rounded-full flex items-center justify-center ${
           !message.trim() || disabled 
             ? 'bg-gray-300 cursor-not-allowed' 
-            : 'bg-primary text-white hover:bg-primary-dark transition-colors'
+            : 'bg-primary hover:bg-primary-dark transition-colors'
         }`}
       >
         <i className="fas fa-paper-plane"></i>

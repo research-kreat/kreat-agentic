@@ -71,8 +71,8 @@ export default function Message({ message, isLast }) {
       {role !== 'system' && (
         <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
           role === 'user' 
-            ? 'bg-primary text-white' 
-            : 'bg-secondary text-white'
+            ? 'bg-primary' 
+            : 'bg-secondary'
         }`}>
           <i className={`fas ${role === 'user' ? 'fa-user' : 'fa-robot'}`}></i>
         </div>
@@ -80,7 +80,7 @@ export default function Message({ message, isLast }) {
       
       <div className={`p-4 rounded-2xl shadow-sm ${
         role === 'user' 
-          ? 'bg-primary text-white rounded-br-none' 
+          ? 'bg-primary rounded-br-none' 
           : role === 'system' 
             ? 'bg-gray-200 text-gray-800 text-center rounded-md' 
             : 'bg-white text-gray-800 rounded-bl-none'
@@ -91,9 +91,7 @@ export default function Message({ message, isLast }) {
         />
         
         {role !== 'system' && (
-          <div className={`text-xs mt-1 text-right ${
-            role === 'user' ? 'text-white/70' : 'text-gray-500'
-          }`}>
+          <div className="text-xs mt-1 text-right">
             {formattedTime}
           </div>
         )}

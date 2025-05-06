@@ -4,7 +4,9 @@ import logging
 import os
 import uuid
 from dotenv import load_dotenv
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, LLM
+from queue import Queue
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -37,7 +39,11 @@ class ChatBot:
             implementation strategies. You help users think outside the box while maintaining
             a practical approach to turning concepts into reality.""",
             verbose=True,
-            llm="azure/gpt-4o-mini",
+            llm=LLM(
+                model="azure/gpt-4o-mini",
+                temperature=0.7,
+                stream=True
+            ),
             memory=True
         )
         
@@ -261,21 +267,20 @@ class ChatBot:
             return True
         
         return False
-        
-    def get_conversation_memory(self, session_id):
-        """Get the conversation memory for a session"""
-        if session_id not in self.memory_cache:
-            self.memory_cache[session_id] = []
-            
-        return self.memory_cache[session_id]
 
     def create_task(self, task_type, user_message, session_id):
         """Create a specific task based on the task type"""
-        # Get conversation memory for this session
-        conversation_history = self.get_conversation_memory(session_id)
-        
-        # Format memory for context
-        context = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in conversation_history])
+        # Get limited conversation memory (only 6 most recent messages)
+        if session_id in self.memory_cache:
+            memory = self.memory_cache[session_id][-6:] if len(self.memory_cache[session_id]) > 6 else self.memory_cache[session_id]
+            
+            # Format memory in the specified format
+            formatted_chat = "OLD CHAT:\n"
+            for msg in memory:
+                role = "USER" if msg['role'] == 'user' else "YOU"
+                formatted_chat += f"{role}: \"{msg['content']}\"\n"
+        else:
+            formatted_chat = ""
         
         # Task descriptions dictionary
         task_descriptions = {
@@ -284,8 +289,7 @@ class ChatBot:
                 
                 User Message: "{user_message}"
                 
-                Previous Conversation Context:
-                {context}
+                {formatted_chat}
                 
                 Your task is to:
                 1. Understand the user's idea or creative concept
@@ -302,8 +306,7 @@ class ChatBot:
                 
                 User Message: "{user_message}"
                 
-                Previous Conversation Context:
-                {context}
+                {formatted_chat}
                 
                 Your task is to:
                 1. Understand the problem the user is facing
@@ -320,8 +323,7 @@ class ChatBot:
                 
                 User Message: "{user_message}"
                 
-                Previous Conversation Context:
-                {context}
+                {formatted_chat}
                 
                 Your task is to:
                 1. Generate multiple solution approaches
@@ -338,8 +340,7 @@ class ChatBot:
                 
                 User Message: "{user_message}"
                 
-                Previous Conversation Context:
-                {context}
+                {formatted_chat}
                 
                 Your task is to:
                 1. Break down the implementation into concrete steps
@@ -383,7 +384,7 @@ class ChatBot:
             # Process with CrewAI
             task = self.create_task(session_type, user_message, session_id)
             
-            # Create and execute CrewAI crew with streaming enabled
+            # Create and execute CrewAI crew
             crew = Crew(
                 agents=[self.dynamic_agent],
                 tasks=[task],
@@ -399,11 +400,32 @@ class ChatBot:
                     "session_id": session_id
                 })
             
-            # Run the crew with streaming
-            response = crew.kickoff(streaming=True)
+            token_queue = Queue()
             
-            # Return the streaming response generator
-            return response, session_id
+            def stream_generator():
+                def process_crew():
+                    try:
+                        response = crew.kickoff()
+                    except Exception as e:
+                        logger.error(f"Error in crew kickoff: {str(e)}")
+                    finally:
+                        token_queue.put(None)
+                
+                # Start the processing thread
+                crew_thread = threading.Thread(target=process_crew)
+                crew_thread.daemon = True
+                crew_thread.start()
+                
+                # Read tokens from the queue until we get a None (signal for end)
+                while True:
+                    token = token_queue.get()
+                    if token is None:
+                        break
+                    yield token
+                    token_queue.task_done()
+            
+            # Return the streaming generator and session_id
+            return stream_generator(), session_id
             
         except Exception as e:
             logger.error(f"Error in chat processing: {str(e)}")

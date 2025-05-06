@@ -116,12 +116,17 @@ def get_session_messages(session_id):
 
 #___________________CHAT API____________________
 
-@app.route('/api/chat', methods=['POST'])
+@app.route('/api/chat', methods=['GET', 'POST'])
 def process_chat():
     """Process a chat message and get a streaming response"""
-    data = request.json
-    message = data.get('message')
-    session_id = data.get('session_id')
+    # Extract message and session_id from either GET or POST request
+    if request.method == 'POST':
+        data = request.json
+        message = data.get('message')
+        session_id = data.get('session_id')
+    else:  # GET
+        message = request.args.get('message')
+        session_id = request.args.get('session_id')
     
     if not message:
         return jsonify({'error': 'Message is required'}), 400
