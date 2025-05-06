@@ -383,7 +383,7 @@ class ChatBot:
             # Process with CrewAI
             task = self.create_task(session_type, user_message, session_id)
             
-            # Create and execute CrewAI crew
+            # Create and execute CrewAI crew with streaming enabled
             crew = Crew(
                 agents=[self.dynamic_agent],
                 tasks=[task],
@@ -399,31 +399,11 @@ class ChatBot:
                     "session_id": session_id
                 })
             
-            # Run the crew
-            response = str(crew.kickoff()).strip()
+            # Run the crew with streaming
+            response = crew.kickoff(streaming=True)
             
-            # Add the assistant's response to the conversation in database
-            assistant_message = self.add_message(session_id, "assistant", response)
-            
-            # Stop typing indicator
-            if self.socket:
-                self.socket.emit("typing_indicator", {
-                    "session_id": session_id,
-                    "is_typing": False
-                })
-                
-                # Send response via socket
-                self.socket.emit("chat_response", {
-                    "session_id": session_id,
-                    "response": response,
-                    "timestamp": assistant_message["timestamp"] if assistant_message else datetime.utcnow().isoformat()
-                })
-            
-            # Return the response
-            return {
-                "response": response,
-                "session_id": session_id
-            }
+            # Return the streaming response generator
+            return response, session_id
             
         except Exception as e:
             logger.error(f"Error in chat processing: {str(e)}")
@@ -439,11 +419,15 @@ class ChatBot:
             error_message = f"I'm sorry, there was an error processing your request. Please try again."
             self.add_message(session_id, "system", error_message)
             
-            return {
-                "error": str(e),
-                "response": error_message,
-                "session_id": session_id
-            }
+            # Return error
+            def error_generator():
+                yield error_message
+                
+            return error_generator(), session_id
+            
+    def save_streamed_response(self, session_id, response_text):
+        """Save the full streamed response to the database after streaming is complete"""
+        return self.add_message(session_id, "assistant", response_text)
             
     def close(self):
         """Close MongoDB connection"""

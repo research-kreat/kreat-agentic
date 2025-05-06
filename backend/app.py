@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, Response, stream_with_context
 from agents.chatbot import ChatBot
 from dotenv import load_dotenv
 from flask_socketio import SocketIO
@@ -118,7 +118,7 @@ def get_session_messages(session_id):
 
 @app.route('/api/chat', methods=['POST'])
 def process_chat():
-    """Process a chat message and get a response"""
+    """Process a chat message and get a streaming response"""
     data = request.json
     message = data.get('message')
     session_id = data.get('session_id')
@@ -134,22 +134,33 @@ def process_chat():
     if not session:
         return jsonify({'error': 'Session not found'}), 404
     
-    # Process message and get response
-    result = chatbot.process_chat(session_id, message)
+    # Process message with streaming support
+    streaming_response, session_id = chatbot.process_chat(session_id, message)
     
-    return jsonify(result), 200
-
-#___________________TEMPLATE ROUTES____________________
-
-@app.route('/')
-def home():
-    """Render the home page"""
-    return render_template('index.html')
-
-@app.route('/idea')
-def idea_page():
-    """Render the idea development page"""
-    return render_template('idea.html')
+    full_response = ""
+    
+    def generate():
+        nonlocal full_response
+        
+        for chunk in streaming_response:
+            full_response += chunk
+            chunk_json = {"chunk": chunk, "session_id": session_id}
+            yield f"data: {jsonify(chunk_json).get_data(as_text=True)}\n\n"
+            
+        # Save the full response to the database
+        chatbot.save_streamed_response(session_id, full_response)
+        
+        # Send the 'done' signal
+        yield f"data: {jsonify({'chunk': '[DONE]', 'session_id': session_id}).get_data(as_text=True)}\n\n"
+        
+        # Emit socket event for typing indicator
+        socketio.emit("typing_indicator", {
+            "session_id": session_id,
+            "is_typing": False
+        })
+    
+    # Return streaming response
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 #___________________MAIN____________________
 
@@ -161,4 +172,4 @@ if __name__ == '__main__':
     atexit.register(chatbot.close)
     
     # Start the server
-    socketio.run(app, debug=True, host='0.0.0.0', allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
