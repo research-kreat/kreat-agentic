@@ -88,9 +88,37 @@ function connectSocket() {
             }
         });
         
+        // Listen for session deletion
+        socket.on("session_deleted", (data) => {
+            if (typeof onSessionDeleted === "function") {
+                onSessionDeleted(data.session_id);
+            }
+        });
+        
     } catch (error) {
         logToConsole(`Error initializing socket: ${error}`, "error");
     }
+}
+
+/**
+ * Handle session deletion event
+ */
+function onSessionDeleted(sessionId) {
+    // If this is the current session, create a new one
+    if (sessionId === currentSessionId) {
+        createNewSession();
+    }
+    
+    // Remove from sessions list
+    const sessionItem = document.getElementById(`session-${sessionId}`);
+    if (sessionItem) {
+        sessionItem.classList.add("deleting");
+        setTimeout(() => {
+            sessionItem.remove();
+        }, 500);
+    }
+    
+    logToConsole(`Session deleted: ${sessionId}`, "info");
 }
 
 // Initialize on page load

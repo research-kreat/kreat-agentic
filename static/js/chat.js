@@ -27,9 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Setup event listeners
     setupEventListeners();
     
-    // Initialize Socket.IO (already done in script.js)
-    
-    // Create or restore session
+    // Initialize session
     initializeSession();
     
     // Auto-resize textarea
@@ -73,6 +71,12 @@ function setupEventListeners() {
     const newSessionBtn = document.getElementById("new-session-btn");
     if (newSessionBtn) {
         newSessionBtn.addEventListener("click", createNewSession);
+    }
+    
+    // Delete session button
+    const deleteSessionBtn = document.getElementById("delete-session-btn");
+    if (deleteSessionBtn) {
+        deleteSessionBtn.addEventListener("click", deleteSession);
     }
 }
 
@@ -159,6 +163,39 @@ function createNewSession() {
     })
     .catch(error => {
         logToConsole(`Error creating new session: ${error}`, "error");
+    });
+}
+
+function deleteSession() {
+    if (!currentSessionId) return;
+    
+    if (!confirm("Are you sure you want to delete this chat session? This action cannot be undone.")) {
+        return;
+    }
+    
+    fetch(`/api/sessions/${currentSessionId}`, {
+        method: "DELETE"
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error("Failed to delete session");
+        }
+        return response.json();
+    })
+    .then(data => {
+        logToConsole(`Deleted session: ${currentSessionId}`, "system");
+        
+        // Remove from sessions list
+        const sessionItem = document.getElementById(`session-${currentSessionId}`);
+        if (sessionItem) {
+            sessionItem.remove();
+        }
+        
+        // Create a new session
+        createNewSession();
+    })
+    .catch(error => {
+        logToConsole(`Error deleting session: ${error}`, "error");
     });
 }
 

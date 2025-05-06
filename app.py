@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from flask_socketio import SocketIO
 import logging
 from flask_cors import CORS
-from datetime import datetime
 import os
 
 # Initialize Flask app and SocketIO
@@ -58,6 +57,20 @@ def get_session(session_id):
     return jsonify({
         'session': session,
         'messages': messages
+    }), 200
+
+@app.route('/api/sessions/<session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """Delete a session completely"""
+    success = chatbot.delete_session(session_id)
+    
+    if not success:
+        return jsonify({'error': 'Failed to delete session'}), 404
+        
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'message': 'Session deleted successfully'
     }), 200
 
 @app.route('/api/sessions', methods=['GET'])
