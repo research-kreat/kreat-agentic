@@ -41,7 +41,7 @@ class ChatBot:
             llm=LLM(
                 model="azure/gpt-4o-mini",
                 temperature=0.7,
-                stream=True
+                stream=False
             ),
             memory=True
         )
