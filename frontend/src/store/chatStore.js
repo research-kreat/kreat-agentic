@@ -7,7 +7,6 @@ export const useChatStore = create((set, get) => ({
   sessions: [],
   messageHistory: [],
   isTyping: false,
-  streamingMessage: '',
   
   // Session info
   sessionInfo: {
@@ -90,33 +89,6 @@ export const useChatStore = create((set, get) => ({
   
   setIsTyping: (status) => set({ isTyping: status }),
   
-  startStreaming: () => set({ 
-    isTyping: true, 
-    streamingMessage: '' 
-  }),
-  
-  appendToStream: (chunk) => set({ 
-    streamingMessage: get().streamingMessage + chunk 
-  }),
-  
-  endStreaming: () => {
-    const { streamingMessage, currentSessionId } = get();
-    
-    if (streamingMessage) {
-      // Add the complete message to history
-      get().addMessage({
-        role: 'assistant',
-        content: streamingMessage,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    set({ 
-      isTyping: false,
-      streamingMessage: '' 
-    });
-  },
-  
   addLog: (log) => {
     const { logs } = get();
     const newLog = {
@@ -131,7 +103,6 @@ export const useChatStore = create((set, get) => ({
     currentSessionId: null,
     messageHistory: [],
     isTyping: false,
-    streamingMessage: '',
     sessionInfo: {
       created: null,
       messageCount: 0,

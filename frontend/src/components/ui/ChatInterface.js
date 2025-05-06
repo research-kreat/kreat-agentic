@@ -1,35 +1,29 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Message from './Message';
-import TypingIndicator from './TypingIndicator';
 import ChatInput from './ChatInput';
 import { useChatStore } from '../../store/chatStore';
 
 export default function ChatInterface() {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
-  const { 
-    currentSessionId,
-    messageHistory,
-    isTyping,
-    streamingMessage,
-    addMessage,
-    setMessageHistory,
-    addLog,
-    setIsTyping,
-    startStreaming,
-    appendToStream,
-    endStreaming,
-    clearMessages,
-  } = useChatStore();
+  
+  // Extract all state from the store at the top level to maintain hook consistency
+  const currentSessionId = useChatStore(state => state.currentSessionId);
+  const messageHistory = useChatStore(state => state.messageHistory);
+  const isTyping = useChatStore(state => state.isTyping);
+  const addMessage = useChatStore(state => state.addMessage);
+  const addLog = useChatStore(state => state.addLog);
+  const setIsTyping = useChatStore(state => state.setIsTyping);
+  const clearMessages = useChatStore(state => state.clearMessages);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messageHistory, isTyping, streamingMessage]);
+  }, [messageHistory, isTyping]);
 
   // Handle sending a message
   const handleSendMessage = async (content) => {
@@ -43,12 +37,12 @@ export default function ChatInterface() {
     };
     addMessage(userMessage);
 
-    // Start streaming indicator
-    startStreaming();
+    // Set typing indicator
+    setIsTyping(true);
 
     try {
-      // Send message using POST method instead of GET
-      const response = await fetch('http://localhost:5000/api/chat', {
+      // Send message to API
+      const response = await fetch(`http://localhost:5000/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -58,48 +52,27 @@ export default function ChatInterface() {
           session_id: currentSessionId
         })
       });
-      
-      // Create a reader from the response body
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      
-      // Read the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
-        // Decode the chunk
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.chunk === '[DONE]') {
-                // Streaming complete
-                endStreaming();
-                addLog({
-                  type: 'info',
-                  message: 'Received complete response from assistant'
-                });
-              } else {
-                // Append chunk to streaming message
-                appendToStream(data.chunk);
-              }
-            } catch (error) {
-              console.error('Error parsing chunk:', error);
-            }
-          }
-        }
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
       }
+
+      const data = await response.json();
+      
+      // Add assistant's response to chat
+      addMessage({
+        role: 'assistant',
+        content: data.response,
+        timestamp: new Date().toISOString()
+      });
+      
+      addLog({
+        type: 'info',
+        message: 'Received response from assistant'
+      });
+      
     } catch (error) {
       console.error('Error sending message:', error);
-      endStreaming();
       
       // Add error message
       addMessage({
@@ -113,6 +86,8 @@ export default function ChatInterface() {
         type: 'error',
         message: `Error sending message: ${error.message}`
       });
+    } finally {
+      setIsTyping(false);
     }
   };
 
@@ -126,6 +101,7 @@ export default function ChatInterface() {
       }
     }
 
+    // Clear messages locally
     clearMessages();
     
     // Send API request to clear on server
@@ -192,6 +168,22 @@ export default function ChatInterface() {
     });
   };
 
+  // Simple loading indicator component
+  const LoadingIndicator = () => (
+    <div className="flex gap-4 self-start">
+      <div className="w-9 h-9 rounded-full bg-secondary text-white flex items-center justify-center">
+        <i className="fas fa-robot"></i>
+      </div>
+      
+      <div className="p-4 rounded-2xl rounded-bl-none bg-white shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-gray-500">Processing...</span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
@@ -249,20 +241,8 @@ export default function ChatInterface() {
           ))}
         </AnimatePresence>
         
-        {/* Streaming message */}
-        {streamingMessage && (
-          <Message 
-            message={{
-              role: 'assistant',
-              content: streamingMessage,
-              timestamp: new Date().toISOString()
-            }}
-            isLast={true}
-          />
-        )}
-        
-        {/* Typing indicator */}
-        {isTyping && !streamingMessage && <TypingIndicator />}
+        {/* Loading indicator */}
+        {isTyping && <LoadingIndicator />}
         
         {/* Invisible element for scrolling */}
         <div ref={messagesEndRef} />

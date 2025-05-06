@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify
 from agents.chatbot import ChatBot
 from dotenv import load_dotenv
 from flask_socketio import SocketIO
@@ -116,17 +116,12 @@ def get_session_messages(session_id):
 
 #___________________CHAT API____________________
 
-@app.route('/api/chat', methods=['GET', 'POST'])
+@app.route('/api/chat', methods=['POST'])
 def process_chat():
-    """Process a chat message and get a streaming response"""
-    # Extract message and session_id from either GET or POST request
-    if request.method == 'POST':
-        data = request.json
-        message = data.get('message')
-        session_id = data.get('session_id')
-    else:  # GET
-        message = request.args.get('message')
-        session_id = request.args.get('session_id')
+    """Process a chat message and get a response"""
+    data = request.json
+    message = data.get('message')
+    session_id = data.get('session_id')
     
     if not message:
         return jsonify({'error': 'Message is required'}), 400
@@ -139,33 +134,42 @@ def process_chat():
     if not session:
         return jsonify({'error': 'Session not found'}), 404
     
-    # Process message with streaming support
-    streaming_response, session_id = chatbot.process_chat(session_id, message)
-    
-    full_response = ""
-    
-    def generate():
-        nonlocal full_response
+    # Process message
+    try:
+        # Emit typing indicator via socket
+        socketio.emit("typing_indicator", {
+            "session_id": session_id,
+            "is_typing": True
+        })
         
-        for chunk in streaming_response:
-            full_response += chunk
-            chunk_json = {"chunk": chunk, "session_id": session_id}
-            yield f"data: {jsonify(chunk_json).get_data(as_text=True)}\n\n"
-            
-        # Save the full response to the database
-        chatbot.save_streamed_response(session_id, full_response)
+        # Process the message
+        response = chatbot.process_chat(session_id, message)
         
-        # Send the 'done' signal
-        yield f"data: {jsonify({'chunk': '[DONE]', 'session_id': session_id}).get_data(as_text=True)}\n\n"
-        
-        # Emit socket event for typing indicator
+        # Turn off typing indicator
         socketio.emit("typing_indicator", {
             "session_id": session_id,
             "is_typing": False
         })
-    
-    # Return streaming response
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+        
+        return jsonify({
+            'response': response,
+            'session_id': session_id,
+            'source': ['AZURE OPENAI AI'],
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error processing chat: {str(e)}")
+        
+        # Turn off typing indicator
+        socketio.emit("typing_indicator", {
+            "session_id": session_id,
+            "is_typing": False
+        })
+        
+        return jsonify({
+            'error': f'Failed to process message: {str(e)}',
+            'session_id': session_id
+        }), 500
 
 #___________________MAIN____________________
 

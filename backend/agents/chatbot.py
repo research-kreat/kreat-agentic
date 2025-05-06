@@ -1,3 +1,4 @@
+# Updated implementation for the chatbot.py file
 from pymongo import MongoClient
 from datetime import datetime
 import logging
@@ -5,8 +6,6 @@ import os
 import uuid
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process, LLM
-from queue import Queue
-import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -200,10 +199,17 @@ class ChatBot:
         # Get current message count
         message_count = len(session.get("messages", []))
         
+        # Ensure content is a string (handle CrewOutput objects)
+        if hasattr(content, 'raw'):
+            # Extract the raw string content from CrewOutput
+            content_str = str(content.raw)
+        else:
+            content_str = str(content)
+        
         # Create message document
         message = {
             "role": role,
-            "content": content,
+            "content": content_str,
             "timestamp": timestamp,
             "index": message_count
         }
@@ -229,7 +235,7 @@ class ChatBot:
                 
             self.memory_cache[session_id].append({
                 "role": role,
-                "content": content
+                "content": content_str
             })
             
         logger.info(f"Added {role} message to session {session_id}")
@@ -400,32 +406,20 @@ class ChatBot:
                     "session_id": session_id
                 })
             
-            token_queue = Queue()
+            # Execute the crew and get response
+            crew_output = crew.kickoff()
+            logger.info(f"CrewAI completed for session {session_id}")
             
-            def stream_generator():
-                def process_crew():
-                    try:
-                        response = crew.kickoff()
-                    except Exception as e:
-                        logger.error(f"Error in crew kickoff: {str(e)}")
-                    finally:
-                        token_queue.put(None)
-                
-                # Start the processing thread
-                crew_thread = threading.Thread(target=process_crew)
-                crew_thread.daemon = True
-                crew_thread.start()
-                
-                # Read tokens from the queue until we get a None (signal for end)
-                while True:
-                    token = token_queue.get()
-                    if token is None:
-                        break
-                    yield token
-                    token_queue.task_done()
+            # Extract the raw text response from CrewOutput
+            if hasattr(crew_output, 'raw'):
+                response_text = crew_output.raw
+            else:
+                response_text = str(crew_output)
             
-            # Return the streaming generator and session_id
-            return stream_generator(), session_id
+            # Save the response to database
+            self.add_message(session_id, "assistant", response_text)
+            
+            return response_text
             
         except Exception as e:
             logger.error(f"Error in chat processing: {str(e)}")
@@ -442,14 +436,7 @@ class ChatBot:
             self.add_message(session_id, "system", error_message)
             
             # Return error
-            def error_generator():
-                yield error_message
-                
-            return error_generator(), session_id
-            
-    def save_streamed_response(self, session_id, response_text):
-        """Save the full streamed response to the database after streaming is complete"""
-        return self.add_message(session_id, "assistant", response_text)
+            return error_message
             
     def close(self):
         """Close MongoDB connection"""

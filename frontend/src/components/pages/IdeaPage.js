@@ -172,7 +172,7 @@ export default function IdeaPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col">
-      <Header isIdeaPage={true} sessionId={currentSessionId} />
+      <Header isIdeaPage={true} sessionId={currentSessionId} handleNewChat={createNewSession}/>
       
       <div className="flex-1 grid grid-cols-[250px_1fr_300px] h-[calc(100vh-72px)]">
         <SessionSidebar onSessionSelect={handleSessionSelect} />
