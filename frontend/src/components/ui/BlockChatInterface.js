@@ -5,6 +5,7 @@ import Message from '@/components/ui/Message';
 import ChatInput from '@/components/ui/ChatInput';
 import TypingIndicator from '@/components/ui/TypingIndicator';
 import { useChatStore } from '@/store/chatStore';
+import { api } from '@/lib/api';
 
 export default function BlockChatInterface({ blockType = 'general' }) {
   const messagesEndRef = useRef(null);
@@ -61,38 +62,12 @@ export default function BlockChatInterface({ blockType = 'general' }) {
     setIsTyping(true);
 
     try {
-      // Determine the endpoint based on whether this is a new block or existing one
-      const endpoint = blockInfo.blockId 
-        ? '/api/analysis_of_block' 
-        : '/api/blocks/analyze';
-      
-      // Prepare request body
-      const requestBody = blockInfo.blockId 
-        ? {
-            message: content,
-            user_id: currentUserId,
-            block_id: blockInfo.blockId
-          }
-        : {
-            message: content,
-            user_id: currentUserId,
-            block_type: blockType
-          };
-            
-      // Send message to API
-      const response = await fetch(`http://localhost:5000${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
+      // Use the centralized API
+      const data = await api.analyzeBlock({
+        message: content,
+        userId: currentUserId,
+        blockId: blockInfo.blockId
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-
-      const data = await response.json();
       
       // Extract the response content based on API response structure
       let responseContent = '';
@@ -162,7 +137,7 @@ export default function BlockChatInterface({ blockType = 'general' }) {
   };
 
   // Handle clearing the chat
-  const handleClearChat = () => {
+  const handleClearChat = async () => {
     if (!currentBlockId) return;
     
     if (messageHistory.length > 1) {
@@ -176,28 +151,18 @@ export default function BlockChatInterface({ blockType = 'general' }) {
     
     // Send API request to clear on server if we have a backend block ID
     if (blockInfo.blockId) {
-      fetch(`http://localhost:5000/api/blocks/${blockInfo.blockId}/clear`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ user_id: userId })
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to clear chat on server');
-        }
+      try {
+        await api.clearBlock({ blockId: blockInfo.blockId, userId });
         addLog({
           type: 'system',
           message: 'Chat cleared'
         });
-      })
-      .catch(error => {
+      } catch (error) {
         addLog({
           type: 'error',
           message: `Error clearing chat on server: ${error.message}`
         });
-      });
+      }
     } else {
       addLog({
         type: 'system',

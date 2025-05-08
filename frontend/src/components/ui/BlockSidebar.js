@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '@/store/chatStore';
+import { api } from '@/lib/api';
 
 export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
   const { 
@@ -19,17 +20,12 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     
     const fetchBlocks = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/api/blocks?type=${blockType}&user_id=${userId}&limit=10`);
-        if (response.ok) {
-          const data = await response.json();
-          setBlocks(data.blocks || []);
-          addLog({
-            type: 'info',
-            message: 'Loaded previous blocks'
-          });
-        } else {
-          throw new Error('Failed to load blocks');
-        }
+        const data = await api.getBlocks({ userId, blockType, limit: 10 });
+        setBlocks(data.blocks || []);
+        addLog({
+          type: 'info',
+          message: 'Loaded previous blocks'
+        });
       } catch (error) {
         addLog({
           type: 'error',
@@ -49,23 +45,12 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     }
     
     try {
-      const response = await fetch(`http://localhost:5000/api/blocks/${blockId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ user_id: userId })
+      await api.deleteBlock({ blockId, userId });
+      removeBlock(blockId);
+      addLog({
+        type: 'info',
+        message: `Deleted block: ${blockId.substring(0, 8)}`
       });
-      
-      if (response.ok) {
-        removeBlock(blockId);
-        addLog({
-          type: 'info',
-          message: `Deleted block: ${blockId.substring(0, 8)}`
-        });
-      } else {
-        throw new Error('Failed to delete block');
-      }
     } catch (error) {
       addLog({
         type: 'error',

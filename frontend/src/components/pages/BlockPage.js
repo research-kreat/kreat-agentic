@@ -6,8 +6,10 @@ import BlockSidebar from '@/components/ui/BlockSidebar';
 import BlockChatInterface from '@/components/ui/BlockChatInterface';
 import InfoPanel from '@/components/ui/InfoPanel';
 import { useChatStore } from '@/store/chatStore';
+import { api } from '@/lib/api';
+import { getWelcomeMessage, getBlockTypeInfo, getRouteForBlockType } from '@/lib/blockUtils';
 
-export default function ProblemPage() {
+export default function BlockPage({ blockType = 'general' }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isClient, setIsClient] = useState(false);
@@ -43,7 +45,7 @@ export default function ProblemPage() {
       loadBlock(blockId);
     } else {
       // Create new block
-      createNewProblemBlock();
+      createNewBlockHandler();
     }
     
     // Cleanup on unmount
@@ -52,18 +54,15 @@ export default function ProblemPage() {
     };
   }, [searchParams, userId]);
   
+  // Get block info using utility function
+  const blockInfo = getBlockTypeInfo(blockType);
+  
   // Load a block
   const loadBlock = async (blockId) => {
     try {
       setIsTyping(true);
       
-      const response = await fetch(`http://localhost:5000/api/blocks/${blockId}?user_id=${userId}`);
-      
-      if (!response.ok) {
-        throw new Error('Block not found');
-      }
-      
-      const data = await response.json();
+      const data = await api.getBlock({ blockId, userId });
       
       // Update block info
       setCurrentBlockId(blockId);
@@ -92,28 +91,72 @@ export default function ProblemPage() {
       });
       
       // Create new block if loading fails
-      createNewProblemBlock();
+      createNewBlockHandler();
     } finally {
       setIsTyping(false);
     }
   };
   
-  // Create a new problem block
-  const createNewProblemBlock = () => {
-    // Use the createNewBlock function from the store
-    const blockId = createNewBlock('problem', 'New Problem Definition');
-    
-    // Update URL without reloading page
-    updateURL(blockId);
-    
-    // Add welcome message
-    setMessageHistory([
-      {
-        role: 'system',
-        content: 'Welcome to Problem Definition. I can help you articulate and analyze challenges. What problem would you like to address?',
-        timestamp: new Date().toISOString()
-      }
-    ]);
+  // Create a new block
+  const createNewBlockHandler = async () => {
+    try {
+      // Create new block on the server
+      const data = await api.createBlock({ 
+        userId, 
+        blockType, 
+        name: `New ${blockInfo.title}`
+      });
+      
+      // Set as current block
+      setCurrentBlockId(data.block_id);
+      
+      // Update block info
+      setBlockInfo({
+        created: data.created_at,
+        type: blockType,
+        blockId: data.block_id,
+        messageCount: 1 // Starting with welcome message
+      });
+      
+      // Update URL without reloading page
+      updateURL(data.block_id);
+      
+      // Add welcome message
+      setMessageHistory([
+        {
+          role: 'system',
+          content: getWelcomeMessage(blockType),
+          timestamp: new Date().toISOString()
+        }
+      ]);
+      
+      addLog({
+        type: 'system',
+        message: `Created new ${blockType} block: ${data.block_id.substring(0, 8)}...`
+      });
+    } catch (error) {
+      console.error('Error creating block:', error);
+      
+      // Fallback to local creation if server fails
+      const blockId = createNewBlock(blockType, `New ${blockInfo.title}`);
+      
+      // Update URL without reloading page
+      updateURL(blockId);
+      
+      // Add welcome message
+      setMessageHistory([
+        {
+          role: 'system',
+          content: getWelcomeMessage(blockType),
+          timestamp: new Date().toISOString()
+        }
+      ]);
+      
+      addLog({
+        type: 'error',
+        message: `Error creating block on server, using local fallback: ${error.message}`
+      });
+    }
   };
   
   // Update URL with block ID
@@ -124,8 +167,11 @@ export default function ProblemPage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set('block', blockId);
     
+    // Get the appropriate route for this block type
+    const route = getRouteForBlockType(blockType);
+    
     // Update router
-    router.push(`/problem?${params.toString()}`);
+    router.push(`${route}?${params.toString()}`);
   };
   
   // Handle block selection
@@ -138,18 +184,24 @@ export default function ProblemPage() {
     return null; // Prevent hydration errors
   }
 
+  // Determine header properties based on block type
+  const headerProps = {
+    blockId: currentBlockId,
+    handleNewChat: createNewBlockHandler,
+    blockType: blockType,
+    // For backward compatibility with existing header component
+    isIdeaPage: blockType === 'idea',
+    isProblemPage: blockType === 'problem',
+    isGeneralChat: blockType === 'general'
+  };
+
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col">
-      <Header 
-        isIdeaPage={false} 
-        isProblemPage={true} 
-        blockId={currentBlockId} 
-        handleNewChat={createNewProblemBlock} 
-      />
+      <Header {...headerProps} />
       
       <div className="flex-1 grid grid-cols-[250px_1fr_300px] h-[calc(100vh-72px)]">
-        <BlockSidebar onBlockSelect={handleBlockSelect} blockType="problem" />
-        <BlockChatInterface blockType="problem" />
+        <BlockSidebar onBlockSelect={handleBlockSelect} blockType={blockType} />
+        <BlockChatInterface blockType={blockType} />
         <InfoPanel />
       </div>
     </main>
