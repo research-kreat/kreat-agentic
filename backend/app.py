@@ -54,7 +54,7 @@ block_handlers = {
     "general": IdeaBlockHandler  # Use IdeaBlockHandler for general chat as fallback
 }
 
-@app.route('/api/blocks/analyze', methods=['POST'])
+@app.route('/api/analyze', methods=['POST'])
 def analyze_general_chat():
     """
     Endpoint for general chat that classifies the input and creates a new block
