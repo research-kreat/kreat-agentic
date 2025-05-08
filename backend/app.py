@@ -1,184 +1,204 @@
 from flask import Flask, request, jsonify
-from agents.chatbot import ChatBot
-from dotenv import load_dotenv
-from flask_socketio import SocketIO
-import logging
 from flask_cors import CORS
+from datetime import datetime
+import uuid
+from pymongo import MongoClient
+from dotenv import load_dotenv
 import os
+import logging
 
-# Initialize Flask app and SocketIO
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'kraft-development-key')
-socketio = SocketIO(app, cors_allowed_origins="*")
-CORS(app)
-load_dotenv()
+# Import our block handlers
+from block_agents.idea_block import IdeaBlockHandler
+from block_agents.problem_block import ProblemBlockHandler
+from block_agents.possibility_block import PossibilityBlockHandler
+from block_agents.concept_block import ConceptBlockHandler
+from block_agents.needs_block import NeedsBlockHandler
+from block_agents.opportunity_block import OpportunityBlockHandler
+from block_agents.outcome_block import OutcomeBlockHandler
+from block_agents.moonshot_block import MoonshotBlockHandler
+from utils_agents.block_classifier import classify_user_input
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize the chatbot
-chatbot = ChatBot(socket_instance=socketio)
+# Load environment variables
+load_dotenv()
 
-#________________SOCKET.IO EVENT HANDLERS_________________
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
 
-@socketio.on('connect')
-def handle_connect():
-    logger.info('Client connected')
-    socketio.emit('status', {'message': 'Connected to KRAFT server'})
+# MongoDB configuration
+MONGO_URI = os.getenv("MONGO_URI")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+client = MongoClient(MONGO_URI)
+db = client[MONGO_DB_NAME]
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    logger.info('Client disconnected')
+# Collections
+flow_collection = db.flow_status
+history_collection = db.conversation_history
 
-#___________________SESSION MANAGEMENT API____________________
+# Block handler mapping
+block_handlers = {
+    "idea": IdeaBlockHandler,
+    "problem": ProblemBlockHandler,
+    "possibility": PossibilityBlockHandler,
+    "concept": ConceptBlockHandler,
+    "needs": NeedsBlockHandler,
+    "opportunity": OpportunityBlockHandler,
+    "outcome": OutcomeBlockHandler,
+    "moonshot": MoonshotBlockHandler
+}
 
-@app.route('/api/sessions/new', methods=['POST'])
-def create_new_session():
-    """Create a new chat session"""
+@app.route('/api/analysis_of_block', methods=['POST'])
+def analyze_block():
+    """
+    Main endpoint for block analysis and conversation flow
+    """
     data = request.json
-    session_type = data.get('type', 'idea')
-    name = data.get('name')
+    user_id = data.get('user_id')
     
-    session = chatbot.create_session(session_type, name)
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
     
-    return jsonify(session), 200
-
-@app.route('/api/sessions/<session_id>', methods=['GET'])
-def get_session(session_id):
-    """Get session details and messages"""
-    session = chatbot.get_session(session_id)
+    # Get user input and block_id if available
+    user_input = data.get('message', '')
+    block_id = data.get('block_id')
     
-    if not session:
-        return jsonify({'error': 'Session not found'}), 404
+    # If no block_id, this is a new conversation, so classify and create
+    if not block_id:
+        # Classify the user input
+        block_type, confidence = classify_user_input(user_input)
         
-    messages = chatbot.get_messages(session_id)
-    
-    return jsonify({
-        'session': session,
-        'messages': messages
-    }), 200
-
-@app.route('/api/sessions/<session_id>', methods=['DELETE'])
-def delete_session(session_id):
-    """Delete a session completely"""
-    success = chatbot.delete_session(session_id)
-    
-    if not success:
-        return jsonify({'error': 'Failed to delete session'}), 404
+        # Create a new block ID
+        block_id = str(uuid.uuid4())
         
-    return jsonify({
-        'success': True,
-        'session_id': session_id,
-        'message': 'Session deleted successfully'
-    }), 200
-
-@app.route('/api/sessions', methods=['GET'])
-def get_sessions():
-    """Get list of sessions with optional filtering"""
-    session_type = request.args.get('type')
-    limit = int(request.args.get('limit', 10))
-    skip = int(request.args.get('skip', 0))
-    
-    sessions = chatbot.get_sessions(session_type, limit, skip)
-    
-    return jsonify({
-        'sessions': sessions,
-        'count': len(sessions)
-    }), 200
-
-@app.route('/api/sessions/<session_id>/clear', methods=['POST'])
-def clear_session(session_id):
-    """Clear all messages from a session"""
-    success = chatbot.clear_session(session_id)
-    
-    if not success:
-        return jsonify({'error': 'Failed to clear session'}), 404
+        # Initialize flow status
+        flow_status = {
+            "user_id": user_id,
+            "block_id": block_id,
+            "block_type": block_type,
+            "initial_input": user_input,
+            "flow_status": {
+                "title": False,
+                "abstract": False,
+                "stakeholders": False,
+                "tags": False,
+                "assumptions": False,
+                "constraints": False,
+                "risks": False,
+                "aspects_implications": False,
+                "impact": False,
+                "connections": False,
+                "classifications": False,
+                "think_models": False
+            },
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
         
-    return jsonify({
-        'success': True,
-        'session_id': session_id
-    }), 200
-
-@app.route('/api/sessions/<session_id>/messages', methods=['GET'])
-def get_session_messages(session_id):
-    """Get messages for a session with optional pagination"""
-    after = request.args.get('after')
-    limit = int(request.args.get('limit', 100))
-    
-    messages = chatbot.get_messages(session_id, after, limit)
-    
-    return jsonify({
-        'session_id': session_id,
-        'messages': messages,
-        'count': len(messages)
-    }), 200
-
-#___________________CHAT API____________________
-
-@app.route('/api/chat', methods=['POST'])
-def process_chat():
-    """Process a chat message and get a response"""
-    data = request.json
-    message = data.get('message')
-    session_id = data.get('session_id')
-    
-    if not message:
-        return jsonify({'error': 'Message is required'}), 400
+        # Store in MongoDB
+        flow_collection.insert_one(flow_status)
         
-    if not session_id:
-        return jsonify({'error': 'Session ID is required'}), 400
-        
-    # Check if session exists
-    session = chatbot.get_session(session_id)
-    if not session:
-        return jsonify({'error': 'Session not found'}), 404
-    
-    # Process message
-    try:
-        # Emit typing indicator via socket
-        socketio.emit("typing_indicator", {
-            "session_id": session_id,
-            "is_typing": True
+        # Store user message in history
+        history_collection.insert_one({
+            "user_id": user_id,
+            "block_id": block_id,
+            "role": "user",
+            "message": user_input,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         })
         
-        # Process the message
-        response = chatbot.process_chat(session_id, message)
+        # Initialize appropriate handler
+        if block_type in block_handlers:
+            handler_class = block_handlers[block_type]
+            handler = handler_class(db, block_id, user_id)
+            
+            # Get initial response
+            response = handler.initialize_block(user_input)
+            
+            # Store assistant response in history
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": response["suggestion"],
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "confidence": confidence,
+                "response": response
+            })
+        else:
+            return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
+    
+    # If block_id exists, continue conversation
+    else:
+        # Fetch flow status
+        flow_data = flow_collection.find_one({"block_id": block_id, "user_id": user_id})
         
-        # Turn off typing indicator
-        socketio.emit("typing_indicator", {
-            "session_id": session_id,
-            "is_typing": False
+        if not flow_data:
+            return jsonify({'error': 'Block not found'}), 404
+        
+        block_type = flow_data.get("block_type")
+        
+        # Store user message in history
+        history_collection.insert_one({
+            "user_id": user_id,
+            "block_id": block_id,
+            "role": "user",
+            "message": user_input,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         })
         
-        return jsonify({
-            'response': response,
-            'session_id': session_id,
-            'source': ['AZURE OPENAI AI'],
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error processing chat: {str(e)}")
-        
-        # Turn off typing indicator
-        socketio.emit("typing_indicator", {
-            "session_id": session_id,
-            "is_typing": False
-        })
-        
-        return jsonify({
-            'error': f'Failed to process message: {str(e)}',
-            'session_id': session_id
-        }), 500
-
-#___________________MAIN____________________
+        # Get appropriate handler
+        if block_type in block_handlers:
+            handler_class = block_handlers[block_type]
+            handler = handler_class(db, block_id, user_id)
+            
+            # Process the message
+            response = handler.process_message(user_input, flow_data["flow_status"])
+            
+            # Update flow status if needed
+            if "updated_flow_status" in response:
+                flow_collection.update_one(
+                    {"block_id": block_id, "user_id": user_id},
+                    {"$set": {
+                        "flow_status": response["updated_flow_status"],
+                        "updated_at": datetime.utcnow()
+                    }}
+                )
+                
+                # Remove this from response as it's internal
+                del response["updated_flow_status"]
+            
+            # Store assistant response in history
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": response.get("suggestion", ""),
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "response": response
+            })
+        else:
+            return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
 
 if __name__ == '__main__':
-    logger.info("Starting KRAFT server...")
-    
-    # Register cleanup handler to close MongoDB connections
-    import atexit
-    atexit.register(chatbot.close)
-    
-    # Start the server
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
