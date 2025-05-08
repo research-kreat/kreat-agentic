@@ -1,13 +1,16 @@
 'use client';
 import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import Message from '@/components/ui/Message';
 import ChatInput from '@/components/ui/ChatInput';
 import TypingIndicator from '@/components/ui/TypingIndicator';
 import { useChatStore } from '@/store/chatStore';
 import { api } from '@/lib/api';
+import { getWelcomeMessage } from '@/lib/blockUtils';
 
 export default function BlockChatInterface({ blockType = 'general' }) {
+  const router = useRouter();
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   
@@ -90,6 +93,9 @@ export default function BlockChatInterface({ blockType = 'general' }) {
             blockId: data.block_id,
             type: data.block_type || blockType
           });
+          
+          // Update the URL to use the dynamic route
+          router.push(`/blocks/${data.block_id}`);
           
           addLog({
             type: 'info',
@@ -246,23 +252,6 @@ export default function BlockChatInterface({ blockType = 'general' }) {
     return titles[blockType] || 'KRAFT Assistant';
   };
 
-  // Get welcome message based on block type
-  const getWelcomeMessage = () => {
-    const messages = {
-      idea: "Welcome to the Idea Development assistant. I can help you craft innovative concepts and solutions. What would you like to explore today?",
-      problem: "Welcome to the Problem Definition assistant. I can help you articulate and analyze challenges. What problem would you like to address?",
-      possibility: "Welcome to the Possibility Explorer. I can help you discover potential solutions and approaches. What possibilities would you like to explore?",
-      moonshot: "Welcome to Moonshot Ideation. I can help you develop ambitious, transformative ideas. What big challenge would you like to tackle?",
-      needs: "Welcome to Needs Analysis. I can help you identify and understand requirements and goals. What needs would you like to analyze?",
-      opportunity: "Welcome to Opportunity Assessment. I can help you discover and evaluate potential markets or directions. What opportunity interests you?",
-      concept: "Welcome to Concept Development. I can help you structure and refine solutions. What concept would you like to develop?",
-      outcome: "Welcome to Outcome Evaluation. I can help you measure and analyze results. What outcomes would you like to evaluate?",
-      general: "Welcome to the KRAFT framework. I can help guide you through creative problem-solving and innovation. How can I assist you today?"
-    };
-    
-    return messages[blockType] || "Welcome to the KRAFT framework. How can I assist you today?";
-  };
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
@@ -309,7 +298,7 @@ export default function BlockChatInterface({ blockType = 'general' }) {
             className="message system"
           >
             <div className="p-4 rounded-md bg-gray-200 text-gray-800 text-center max-w-[80%] self-center">
-              <p>{getWelcomeMessage()}</p>
+              <p>{getWelcomeMessage(blockType)}</p>
             </div>
           </motion.div>
         )}

@@ -1,10 +1,13 @@
 'use client';
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '@/store/chatStore';
 import { api } from '@/lib/api';
+import { getBlockTypeInfo } from '@/lib/blockUtils';
 
 export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
+  const router = useRouter();
   const { 
     blocks, 
     currentBlockId, 
@@ -13,6 +16,9 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     addLog,
     userId
   } = useChatStore();
+  
+  // Get block info using the utility function
+  const blockInfo = getBlockTypeInfo(blockType);
   
   // Load blocks from API on component mount
   useEffect(() => {
@@ -39,11 +45,7 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
   
   const handleDeleteBlock = async (e, blockId) => {
     e.stopPropagation(); // Prevent block selection
-    
-    if (!confirm('Are you sure you want to delete this block? This action cannot be undone.')) {
-      return;
-    }
-    
+
     try {
       await api.deleteBlock({ blockId, userId });
       removeBlock(blockId);
@@ -51,6 +53,11 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
         type: 'info',
         message: `Deleted block: ${blockId.substring(0, 8)}`
       });
+      
+      // If we deleted the current block, go back to blocks page
+      if (blockId === currentBlockId) {
+        router.push(`/blocks?type=${blockType}`);
+      }
     } catch (error) {
       addLog({
         type: 'error',
@@ -59,32 +66,22 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     }
   };
 
-  // Get block title based on type
-  const getBlockTitle = (type) => {
-    const titles = {
-      idea: 'Idea Development',
-      problem: 'Problem Definition',
-      possibility: 'Possibility Explorer',
-      moonshot: 'Moonshot Ideation',
-      needs: 'Needs Analysis',
-      opportunity: 'Opportunity Assessment',
-      concept: 'Concept Development',
-      outcome: 'Outcome Evaluation',
-      general: 'General Assistant'
-    };
+  const handleBlockClick = (blockId) => {
+    // Navigate to the block using the new dynamic route
+    router.push(`/blocks/${blockId}`);
     
-    return titles[type] || 'KRAFT Assistant';
+    // Also call the onBlockSelect callback if provided
+    if (onBlockSelect) {
+      onBlockSelect(blockId);
+    }
   };
   
   return (
     <div className="h-full bg-white border-r border-gray-200 flex flex-col">
       <div className="p-6 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-800 mb-2">{getBlockTitle(blockType)}</h3>
+        <h3 className="text-lg font-medium text-gray-800 mb-2">{blockInfo.title}</h3>
         <p className="text-sm text-gray-600">
-          {blockType === 'idea' && 'Craft innovative concepts'}
-          {blockType === 'problem' && 'Define and explore challenges'}
-          {blockType === 'general' && 'AI-powered creative assistance'}
-          {!['idea', 'problem', 'general'].includes(blockType) && 'Creative problem-solving'}
+          {blockInfo.description}
         </p>
       </div>
       
@@ -114,7 +111,7 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
                         ? 'bg-blue-50 border-l-4 border-primary' 
                         : 'bg-gray-100 hover:bg-gray-200'
                     }`}
-                    onClick={() => onBlockSelect(block.block_id)}
+                    onClick={() => handleBlockClick(block.block_id)}
                   >
                     <div className="block-content">
                       <div className="text-gray-800 font-medium mb-1 truncate">

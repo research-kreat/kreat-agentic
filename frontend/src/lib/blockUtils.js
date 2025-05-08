@@ -82,15 +82,15 @@ export const getWelcomeMessage = (blockType) => {
    * Map block types to their routes
    */
   export const blockTypeRoutes = {
-    idea: '/blocks',
-    problem: '/blocks',
-    possibility: '/blocks',
-    moonshot: '/blocks',
-    needs: '/blocks',
-    opportunity: '/blocks',
-    concept: '/blocks',
-    outcome: '/blocks',
-    general: '/blocks'
+    idea: '/blocks?type=idea',
+    problem: '/blocks?type=problem',
+    possibility: '/blocks?type=possibility',
+    moonshot: '/blocks?type=moonshot',
+    needs: '/blocks?type=needs',
+    opportunity: '/blocks?type=opportunity',
+    concept: '/blocks?type=concept',
+    outcome: '/blocks?type=outcome',
+    general: '/blocks?type=general'
   };
   
   /**
@@ -99,5 +99,5 @@ export const getWelcomeMessage = (blockType) => {
    * @returns {string} - Route for the block type
    */
   export const getRouteForBlockType = (blockType) => {
-    return blockTypeRoutes[blockType] || '/blocks';
+    return blockTypeRoutes[blockType] || '/blocks?type=general';
   };

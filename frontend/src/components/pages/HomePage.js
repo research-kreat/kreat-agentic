@@ -53,7 +53,7 @@ export default function Home() {
               title="General Assistant" 
               description="AI-powered creative guidance" 
               active={true} 
-              link="/chat" 
+              link="/blocks?type=general" 
             />
           </motion.div>
         </motion.section>
@@ -79,7 +79,7 @@ export default function Home() {
               title="Problem" 
               description="Define and explore challenges" 
               active={true} 
-              link="/problem" 
+              link="/blocks?type=problem" 
             />
             
             <AgentCard 
@@ -94,7 +94,7 @@ export default function Home() {
               title="Idea" 
               description="Craft innovative concepts" 
               active={true} 
-              link="/idea" 
+              link="/blocks?type=idea" 
             />
             
             <AgentCard 

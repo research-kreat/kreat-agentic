@@ -1,21 +1,29 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { getBlockTypeInfo } from '@/lib/blockUtils';
 
 export default function Header({ 
   blockId = null, 
   isIdeaPage = false, 
   isProblemPage = false,
   isGeneralChat = false,
+  blockType = 'general',
   handleNewChat = () => {} 
 }) {
   const router = useRouter();
   
   // Determine page type and settings
-  const isBlockPage = isIdeaPage || isProblemPage || isGeneralChat;
+  const isBlockPage = isIdeaPage || isProblemPage || isGeneralChat || blockType !== 'general';
+  
+  // Get block info using the utility function
+  const blockInfo = getBlockTypeInfo(blockType);
   
   // Get page title based on type
   const getPageTitle = () => {
+    if (blockInfo) return blockInfo.title;
+    
+    // Legacy support
     if (isIdeaPage) return 'Idea Development';
     if (isProblemPage) return 'Problem Definition';
     if (isGeneralChat) return 'General Assistant';
@@ -24,6 +32,9 @@ export default function Header({
   
   // Get icon based on page type
   const getIcon = () => {
+    if (blockInfo) return blockInfo.icon;
+    
+    // Legacy support
     if (isIdeaPage) return 'fa-lightbulb';
     if (isProblemPage) return 'fa-question-circle';
     if (isGeneralChat) return 'fa-comment';
@@ -65,7 +76,7 @@ export default function Header({
                 onClick={handleNewChat}
                 className="px-3 py-2 bg-gray-200 text-gray-700 rounded-md text-sm flex items-center gap-1 hover:bg-gray-300 transition duration-300"
               >
-                <i className="fas fa-plus"></i> New {isIdeaPage ? 'Idea' : isProblemPage ? 'Problem' : 'Chat'}
+                <i className="fas fa-plus"></i> New {getPageTitle()}
               </button>
             </div>
           )}

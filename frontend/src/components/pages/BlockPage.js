@@ -7,7 +7,7 @@ import BlockChatInterface from '@/components/ui/BlockChatInterface';
 import InfoPanel from '@/components/ui/InfoPanel';
 import { useChatStore } from '@/store/chatStore';
 import { api } from '@/lib/api';
-import { getWelcomeMessage, getBlockTypeInfo, getRouteForBlockType } from '@/lib/blockUtils';
+import { getWelcomeMessage, getBlockTypeInfo } from '@/lib/blockUtils';
 
 export default function BlockPage({ blockType = 'general' }) {
   const router = useRouter();
@@ -76,8 +76,8 @@ export default function BlockPage({ blockType = 'general' }) {
       // Load messages
       setMessageHistory(data.messages || []);
       
-      // Update URL without reloading page
-      updateURL(blockId);
+      // Update URL to use the dynamic route
+      router.push(`/blocks/${blockId}`);
       
       addLog({
         type: 'system',
@@ -118,8 +118,8 @@ export default function BlockPage({ blockType = 'general' }) {
         messageCount: 1 // Starting with welcome message
       });
       
-      // Update URL without reloading page
-      updateURL(data.block_id);
+      // Update URL to use the dynamic route
+      router.push(`/blocks/${data.block_id}`);
       
       // Add welcome message
       setMessageHistory([
@@ -140,8 +140,8 @@ export default function BlockPage({ blockType = 'general' }) {
       // Fallback to local creation if server fails
       const blockId = createNewBlock(blockType, `New ${blockInfo.title}`);
       
-      // Update URL without reloading page
-      updateURL(blockId);
+      // Update URL to use the dynamic route
+      router.push(`/blocks/${blockId}`);
       
       // Add welcome message
       setMessageHistory([
@@ -157,21 +157,6 @@ export default function BlockPage({ blockType = 'general' }) {
         message: `Error creating block on server, using local fallback: ${error.message}`
       });
     }
-  };
-  
-  // Update URL with block ID
-  const updateURL = (blockId) => {
-    if (!blockId) return;
-    
-    // Create new URL with updated query params
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('block', blockId);
-    
-    // Get the appropriate route for this block type
-    const route = getRouteForBlockType(blockType);
-    
-    // Update router
-    router.push(`${route}?${params.toString()}`);
   };
   
   // Handle block selection
