@@ -39,6 +39,32 @@ export default function Home() {
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <h3 className="text-lg font-medium text-gray-700 mb-4 pb-2 border-b border-gray-300">
+            GENERAL CHAT
+          </h3>
+          
+          <motion.div 
+            className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-1 gap-6"
+            variants={container}
+            initial="hidden"
+            animate="show"
+          >
+            <AgentCard 
+              icon="fa-comment" 
+              title="General Assistant" 
+              description="AI-powered creative guidance" 
+              active={true} 
+              link="/chat" 
+            />
+          </motion.div>
+        </motion.section>
+        
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <h3 className="text-lg font-medium text-gray-700 mb-4 pb-2 border-b border-gray-300">
             SPARK BLOCKS
           </h3>
           
@@ -52,7 +78,8 @@ export default function Home() {
               icon="fa-question-circle" 
               title="Problem" 
               description="Define and explore challenges" 
-              active={false} 
+              active={true} 
+              link="/problem" 
             />
             
             <AgentCard 
@@ -142,7 +169,7 @@ export default function Home() {
           >
             <AgentCard 
               icon="fa-history" 
-              title="Session History" 
+              title="Block History" 
               description="View previous conversations" 
               active={false} 
             />

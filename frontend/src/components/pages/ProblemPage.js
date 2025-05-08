@@ -7,7 +7,7 @@ import BlockChatInterface from '@/components/ui/BlockChatInterface';
 import InfoPanel from '@/components/ui/InfoPanel';
 import { useChatStore } from '@/store/chatStore';
 
-export default function IdeaPage() {
+export default function ProblemPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isClient, setIsClient] = useState(false);
@@ -43,7 +43,7 @@ export default function IdeaPage() {
       loadBlock(blockId);
     } else {
       // Create new block
-      createNewIdeaBlock();
+      createNewProblemBlock();
     }
     
     // Cleanup on unmount
@@ -92,16 +92,16 @@ export default function IdeaPage() {
       });
       
       // Create new block if loading fails
-      createNewIdeaBlock();
+      createNewProblemBlock();
     } finally {
       setIsTyping(false);
     }
   };
   
-  // Create a new idea block
-  const createNewIdeaBlock = () => {
+  // Create a new problem block
+  const createNewProblemBlock = () => {
     // Use the createNewBlock function from the store
-    const blockId = createNewBlock('idea', 'New Idea Chat');
+    const blockId = createNewBlock('problem', 'New Problem Definition');
     
     // Update URL without reloading page
     updateURL(blockId);
@@ -110,7 +110,7 @@ export default function IdeaPage() {
     setMessageHistory([
       {
         role: 'system',
-        content: 'Welcome to a new Idea Development block. How can I help you today?',
+        content: 'Welcome to Problem Definition. I can help you articulate and analyze challenges. What problem would you like to address?',
         timestamp: new Date().toISOString()
       }
     ]);
@@ -125,7 +125,7 @@ export default function IdeaPage() {
     params.set('block', blockId);
     
     // Update router
-    router.push(`/idea?${params.toString()}`);
+    router.push(`/problem?${params.toString()}`);
   };
   
   // Handle block selection
@@ -140,11 +140,16 @@ export default function IdeaPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col">
-      <Header isIdeaPage={true} blockId={currentBlockId} handleNewChat={createNewIdeaBlock} />
+      <Header 
+        isIdeaPage={false} 
+        isProblemPage={true} 
+        blockId={currentBlockId} 
+        handleNewChat={createNewProblemBlock} 
+      />
       
       <div className="flex-1 grid grid-cols-[250px_1fr_300px] h-[calc(100vh-72px)]">
-        <BlockSidebar onBlockSelect={handleBlockSelect} blockType="idea" />
-        <BlockChatInterface blockType="idea" />
+        <BlockSidebar onBlockSelect={handleBlockSelect} blockType="problem" />
+        <BlockChatInterface blockType="problem" />
         <InfoPanel />
       </div>
     </main>
