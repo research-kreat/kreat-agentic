@@ -64,16 +64,17 @@ export default function Message({ message, isLast }) {
   // Render detailed response data if available
   const renderResponseDetails = () => {
     if (!fullResponse || typeof fullResponse !== 'object') return null;
-    
+  
     return (
-      <div className="mt-3 border-t border-gray-200 pt-2 text-xs">
-        <div className="font-medium mb-1">Full Response Data:</div>
-        <p className="bg-gray-100 p-2 rounded overflow-auto max-h-60">
+      <div className="mt-3 border-t border-gray-200 pt-2 text-xs w-full max-w-full">
+        <div className="font-medium mb-1 text-gray-700">Full Response Data:</div>
+        <pre className="bg-gray-100 p-3 rounded-md overflow-auto max-h-60 text-left whitespace-pre-wrap break-words text-[11px]">
           {JSON.stringify(fullResponse, null, 2)}
-        </p>
+        </pre>
       </div>
     );
   };
+  
   
   return (
     <motion.div 
