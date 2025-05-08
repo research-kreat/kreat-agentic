@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Header from '@/components/ui/Header';
 import BlockSidebar from '@/components/ui/BlockSidebar';
 import BlockChatInterface from '@/components/ui/BlockChatInterface';
@@ -9,9 +9,8 @@ import { useChatStore } from '@/store/chatStore';
 import { api } from '@/lib/api';
 import { getWelcomeMessage, getBlockTypeInfo } from '@/lib/blockUtils';
 
-export default function BlockPage({ blockType = 'general' }) {
+export default function BlockPage({ blockType = 'general', blockId = null }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [isClient, setIsClient] = useState(false);
   
   const { 
@@ -34,11 +33,9 @@ export default function BlockPage({ blockType = 'general' }) {
     initializeUser();
   }, [initializeUser]);
 
-  // Initialize block based on URL query params or create new block
+  // Initialize block based on blockId prop or create new block
   useEffect(() => {
     if (!userId) return;
-    
-    const blockId = searchParams.get('block');
     
     if (blockId) {
       // Load existing block
@@ -52,7 +49,7 @@ export default function BlockPage({ blockType = 'general' }) {
     return () => {
       resetStore();
     };
-  }, [searchParams, userId]);
+  }, [blockId, userId, blockType]);
   
   // Get block info using utility function
   const blockInfo = getBlockTypeInfo(blockType);
@@ -69,15 +66,12 @@ export default function BlockPage({ blockType = 'general' }) {
       setBlockInfo({
         created: data.block.created_at,
         messageCount: data.messages.length,
-        type: data.block.type,
+        type: data.block.type || blockType,
         blockId: data.block.block_id
       });
       
       // Load messages
       setMessageHistory(data.messages || []);
-      
-      // Update URL to use the dynamic route
-      router.push(`/blocks/${blockId}`);
       
       addLog({
         type: 'system',
@@ -119,7 +113,7 @@ export default function BlockPage({ blockType = 'general' }) {
       });
       
       // Update URL to use the dynamic route
-      router.push(`/blocks/${data.block_id}`);
+      router.replace(`/blocks/${data.block_id}`);
       
       // Add welcome message
       setMessageHistory([
@@ -141,7 +135,7 @@ export default function BlockPage({ blockType = 'general' }) {
       const blockId = createNewBlock(blockType, `New ${blockInfo.title}`);
       
       // Update URL to use the dynamic route
-      router.push(`/blocks/${blockId}`);
+      router.replace(`/blocks/${blockId}`);
       
       // Add welcome message
       setMessageHistory([
@@ -162,7 +156,9 @@ export default function BlockPage({ blockType = 'general' }) {
   // Handle block selection
   const handleBlockSelect = (blockId) => {
     if (blockId === currentBlockId) return;
-    loadBlock(blockId);
+    
+    // Navigate to the selected block
+    router.push(`/blocks/${blockId}`);
   };
   
   if (!isClient) {
@@ -173,11 +169,7 @@ export default function BlockPage({ blockType = 'general' }) {
   const headerProps = {
     blockId: currentBlockId,
     handleNewChat: createNewBlockHandler,
-    blockType: blockType,
-    // For backward compatibility with existing header component
-    isIdeaPage: blockType === 'idea',
-    isProblemPage: blockType === 'problem',
-    isGeneralChat: blockType === 'general'
+    blockType: blockType
   };
 
   return (

@@ -1,12 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { notFound } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useChatStore } from '@/store/chatStore';
 import BlockPage from '@/components/pages/BlockPage';
 import NotFoundPage from '@/app/not-found';
+import { api } from '@/lib/api';
 
-export default function BlockIdPage({ params }) {
-  const { block_id } = params;
+export default function BlockIdPage() {
+  // Use the useParams hook to get route parameters in client components
+  const params = useParams();
+  const blockId = params?.block_id;
+  
   const [blockType, setBlockType] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,18 +20,20 @@ export default function BlockIdPage({ params }) {
 
   useEffect(() => {
     // Initialize user if needed
-    initializeUser();
+    const initializedUserId = initializeUser();
 
-    if (!userId || !block_id) return;
+    if (!blockId) {
+      setError(new Error("Block ID is required"));
+      setLoading(false);
+      return;
+    }
 
     const fetchBlockType = async () => {
       try {
         setLoading(true);
-        // Import api from lib
-        const { api } = await import('@/lib/api');
 
         // Get block details to determine the type
-        const data = await api.getBlock({ blockId: block_id, userId });
+        const data = await api.getBlock({ blockId, userId: initializedUserId });
         const type = data.block.type || 'general';
         
         setBlockType(type);
@@ -39,8 +45,11 @@ export default function BlockIdPage({ params }) {
       }
     };
 
-    fetchBlockType();
-  }, [block_id, userId, initializeUser]);
+    // Only fetch if we have a userId
+    if (initializedUserId) {
+      fetchBlockType();
+    }
+  }, [blockId, initializeUser]);
 
   // Show loading state
   if (loading) {
@@ -61,6 +70,6 @@ export default function BlockIdPage({ params }) {
     return <NotFoundPage message="Block not found or inaccessible" />;
   }
 
-  // Render the BlockPage with the determined block type
-  return <BlockPage blockType={blockType} />;
+  // Render the BlockPage with the determined block type and block ID
+  return <BlockPage blockType={blockType} blockId={blockId} />;
 }

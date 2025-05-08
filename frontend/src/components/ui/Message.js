@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
 export default function Message({ message, isLast }) {
-  const { role, content, timestamp } = message;
+  const { role, content, timestamp, fullResponse } = message;
   const messageRef = useRef(null);
+  const [showDetails, setShowDetails] = useState(false);
   
   // Scroll into view if it's the last message
   useEffect(() => {
@@ -53,6 +54,27 @@ export default function Message({ message, isLast }) {
     visible: { opacity: 1, y: 0 }
   };
   
+  // Toggle details view for assistants' responses when fullResponse exists
+  const toggleDetails = () => {
+    if (role === 'assistant' && fullResponse) {
+      setShowDetails(!showDetails);
+    }
+  };
+  
+  // Render detailed response data if available
+  const renderResponseDetails = () => {
+    if (!fullResponse || typeof fullResponse !== 'object') return null;
+    
+    return (
+      <div className="mt-3 border-t border-gray-200 pt-2 text-xs">
+        <div className="font-medium mb-1">Full Response Data:</div>
+        <p className="bg-gray-100 p-2 rounded overflow-auto max-h-60">
+          {JSON.stringify(fullResponse, null, 2)}
+        </p>
+      </div>
+    );
+  };
+  
   return (
     <motion.div 
       ref={messageRef}
@@ -78,21 +100,32 @@ export default function Message({ message, isLast }) {
         </div>
       )}
       
-      <div className={`p-4 rounded-2xl shadow-sm ${
-        role === 'user' 
-          ? 'bg-primary rounded-br-none' 
-          : role === 'system' 
-            ? 'bg-gray-200 text-gray-800 text-center rounded-md' 
-            : 'bg-white text-gray-800 rounded-bl-none'
-      }`}>
+      <div 
+        className={`p-4 rounded-2xl shadow-sm ${
+          role === 'user' 
+            ? 'bg-primary rounded-br-none' 
+            : role === 'system' 
+              ? 'bg-gray-200 text-gray-800 text-center rounded-md' 
+              : 'bg-white text-gray-800 rounded-bl-none'
+        }`}
+        onClick={role === 'assistant' && fullResponse ? toggleDetails : undefined}
+      >
         <div 
           dangerouslySetInnerHTML={{ __html: formatMessageContent(content) }} 
           className="message-content"
         />
         
+        {/* Show response details if toggled and available */}
+        {showDetails && renderResponseDetails()}
+        
         {role !== 'system' && (
-          <div className="text-xs mt-1 text-right">
-            {formattedTime}
+          <div className="text-xs mt-1 text-right flex justify-between items-center">
+            {role === 'assistant' && fullResponse && (
+              <span className="cursor-pointer text-blue-500 hover:underline">
+                {showDetails ? 'Hide details' : 'Show details'}
+              </span>
+            )}
+            <span>{formattedTime}</span>
           </div>
         )}
       </div>

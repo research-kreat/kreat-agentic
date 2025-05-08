@@ -74,8 +74,12 @@ export default function BlockChatInterface({ blockType = 'general' }) {
       
       // Extract the response content based on API response structure
       let responseContent = '';
+      let fullResponseData = {};
       
       if (data.response && typeof data.response === 'object') {
+        // Store the full response data
+        fullResponseData = data.response;
+        
         // For structured block responses
         if (data.response.suggestion) {
           responseContent = data.response.suggestion;
@@ -88,14 +92,14 @@ export default function BlockChatInterface({ blockType = 'general' }) {
         }
         
         // If this is a new block with a backend ID, update the block info
-        if (data.block_id && !blockInfo.blockId) {
+        if (data.block_id && (!blockInfo.blockId || blockInfo.blockId !== data.block_id)) {
           setBlockInfo({
             blockId: data.block_id,
             type: data.block_type || blockType
           });
           
           // Update the URL to use the dynamic route
-          router.push(`/blocks/${data.block_id}`);
+          router.replace(`/blocks/${data.block_id}`);
           
           addLog({
             type: 'info',
@@ -105,16 +109,19 @@ export default function BlockChatInterface({ blockType = 'general' }) {
       } else if (data.response && typeof data.response === 'string') {
         // For simple string responses
         responseContent = data.response;
+        fullResponseData = { suggestion: data.response };
       } else {
         // Fallback
         responseContent = "I've processed your request, but I'm not sure how to respond. Can you provide more details?";
+        fullResponseData = { suggestion: responseContent };
       }
       
-      // Add assistant's response to chat
+      // Add assistant's response to chat with full data
       addMessage({
         role: 'assistant',
         content: responseContent,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        fullResponse: fullResponseData // Store the full response data
       });
       
       addLog({

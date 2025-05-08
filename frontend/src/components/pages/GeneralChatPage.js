@@ -6,6 +6,7 @@ import BlockSidebar from '@/components/ui/BlockSidebar';
 import BlockChatInterface from '@/components/ui/BlockChatInterface';
 import InfoPanel from '@/components/ui/InfoPanel';
 import { useChatStore } from '@/store/chatStore';
+import { api } from '@/lib/api';
 
 export default function GeneralChatPage() {
   const router = useRouter();
@@ -39,8 +40,8 @@ export default function GeneralChatPage() {
     const blockId = searchParams.get('block');
     
     if (blockId) {
-      // Load existing block
-      loadBlock(blockId);
+      // Redirect to the dynamic route
+      router.replace(`/blocks/${blockId}`);
     } else {
       // Create new block
       createNewGeneralBlock();
@@ -50,88 +51,68 @@ export default function GeneralChatPage() {
     return () => {
       resetStore();
     };
-  }, [searchParams, userId]);
+  }, [searchParams, userId, router]);
   
-  // Load a block
-  const loadBlock = async (blockId) => {
+  // Create a new general block
+  const createNewGeneralBlock = async () => {
     try {
-      setIsTyping(true);
-      
-      const response = await fetch(`http://localhost:5000/api/blocks/${blockId}?user_id=${userId}`);
-      
-      if (!response.ok) {
-        throw new Error('Block not found');
-      }
-      
-      const data = await response.json();
-      
-      // Update block info
-      setCurrentBlockId(blockId);
-      setBlockInfo({
-        created: data.block.created_at,
-        messageCount: data.messages.length,
-        type: data.block.type,
-        blockId: data.block.block_id
+      // Create block on the server
+      const data = await api.createBlock({
+        userId,
+        blockType: 'general',
+        name: 'New Chat'
       });
       
-      // Load messages
-      setMessageHistory(data.messages || []);
+      // Set as current block
+      setCurrentBlockId(data.block_id);
       
-      // Update URL without reloading page
-      updateURL(blockId);
+      // Update block info
+      setBlockInfo({
+        created: data.created_at,
+        type: 'general',
+        blockId: data.block_id,
+        messageCount: 1 // Starting with welcome message
+      });
+      
+      // Navigate to the dynamic route
+      router.replace(`/blocks/${data.block_id}`);
+      
+      // Add welcome message
+      setMessageHistory([
+        {
+          role: 'system',
+          content: 'Welcome to KRAFT. I can assist with creative problem-solving and innovation. How can I help you today?',
+          timestamp: new Date().toISOString()
+        }
+      ]);
       
       addLog({
         type: 'system',
-        message: `Loaded block: ${blockId.substring(0, 8)}...`
+        message: `Created new general block: ${data.block_id.substring(0, 8)}...`
       });
     } catch (error) {
-      console.error('Error loading block:', error);
+      console.error('Error creating block:', error);
+      
+      // Fallback to local creation
+      const blockId = createNewBlock('general', 'New Chat');
+      
+      // Navigate to the dynamic route
+      router.replace(`/blocks/${blockId}`);
+      
+      // Add welcome message
+      setMessageHistory([
+        {
+          role: 'system',
+          content: 'Welcome to KRAFT. I can assist with creative problem-solving and innovation. How can I help you today?',
+          timestamp: new Date().toISOString()
+        }
+      ]);
+      
       addLog({
         type: 'error',
-        message: `Error loading block: ${error.message}`
+        message: `Error creating block on server, using local fallback: ${error.message}`
       });
-      
-      // Create new block if loading fails
-      createNewGeneralBlock();
-    } finally {
-      setIsTyping(false);
     }
-  };
-  
-  // Create a new general block
-  const createNewGeneralBlock = () => {
-    // Use the createNewBlock function from the store
-    const blockId = createNewBlock('general', 'New Chat');
-    
-    // Update URL without reloading page
-    updateURL(blockId);
-    
-    // Add welcome message
-    setMessageHistory([
-      {
-        role: 'system',
-        content: 'Welcome to KRAFT. I can assist with creative problem-solving and innovation. How can I help you today?',
-        timestamp: new Date().toISOString()
-      }
-    ]);
-  };
-  
-  // Update URL with block ID
-  const updateURL = (blockId) => {
-    if (!blockId) return;
-    
-    // Create new URL with updated query params
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('block', blockId);
-    
-    // Update router
-    router.push(`/chat?${params.toString()}`);
-  };
-  
-  // Handle block selection
-  const handleBlockSelect = (blockId) => {
-    if (blockId === currentBlockId) return;
-    loadBlock(blockId);
   };
   
   if (!isClient) {
@@ -147,7 +128,7 @@ export default function GeneralChatPage() {
       />
       
       <div className="flex-1 grid grid-cols-[250px_1fr_300px] h-[calc(100vh-72px)]">
-        <BlockSidebar onBlockSelect={handleBlockSelect} blockType="general" />
+        <BlockSidebar onBlockSelect={(blockId) => router.push(`/blocks/${blockId}`)} blockType="general" />
         <BlockChatInterface blockType="general" />
         <InfoPanel />
       </div>

@@ -46,11 +46,14 @@ export const useChatStore = create(
       
       addMessage: (message) => {
         const { messageHistory } = get();
+        // Create a new array instead of modifying the existing one
+        const newHistory = [...messageHistory, message];
+        
         set({ 
-          messageHistory: [...messageHistory, message],
+          messageHistory: newHistory,
           blockInfo: {
             ...get().blockInfo,
-            messageCount: get().blockInfo.messageCount + 1
+            messageCount: newHistory.length
           }
         });
       },
@@ -81,7 +84,21 @@ export const useChatStore = create(
         });
       },
       
-      setMessageHistory: (messages) => set({ messageHistory: messages }),
+      setMessageHistory: (messages) => {
+        // Ensure each message has a timestamp
+        const messagesWithTimestamps = messages.map(msg => ({
+          ...msg,
+          timestamp: msg.timestamp || new Date().toISOString()
+        }));
+        
+        set({ 
+          messageHistory: messagesWithTimestamps,
+          blockInfo: {
+            ...get().blockInfo,
+            messageCount: messagesWithTimestamps.length
+          } 
+        });
+      },
       
       clearMessages: () => set({ 
         messageHistory: [
@@ -171,7 +188,9 @@ export const useChatStore = create(
       name: 'kraft-chat-storage',
       partialize: (state) => ({
         userId: state.userId,
-        blocks: state.blocks
+        blocks: state.blocks,
+        // Don't persist these volatile states
+        // messageHistory, isTyping, blockInfo, logs
       }),
     }
   )

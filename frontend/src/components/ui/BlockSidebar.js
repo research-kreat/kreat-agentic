@@ -26,7 +26,7 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     
     const fetchBlocks = async () => {
       try {
-        const data = await api.getBlocks({ userId, blockType, limit: 10 });
+        const data = await api.getBlocks({ userId, blockType, limit: 20 });
         setBlocks(data.blocks || []);
         addLog({
           type: 'info',
@@ -45,6 +45,11 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
   
   const handleDeleteBlock = async (e, blockId) => {
     e.stopPropagation(); // Prevent block selection
+    e.preventDefault(); // Prevent navigation
+
+    if (!confirm("Are you sure you want to delete this block? This cannot be undone.")) {
+      return;
+    }
 
     try {
       await api.deleteBlock({ blockId, userId });
@@ -54,7 +59,7 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
         message: `Deleted block: ${blockId.substring(0, 8)}`
       });
       
-      // If we deleted the current block, go back to blocks page
+      // If we deleted the current block, go to blocks page
       if (blockId === currentBlockId) {
         router.push(`/blocks?type=${blockType}`);
       }
@@ -67,7 +72,7 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
   };
 
   const handleBlockClick = (blockId) => {
-    // Navigate to the block using the new dynamic route
+    // Navigate to the block using the dynamic route
     router.push(`/blocks/${blockId}`);
     
     // Also call the onBlockSelect callback if provided
@@ -95,42 +100,44 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
         ) : (
           <AnimatePresence>
             <ul>
-              {blocks.map(block => {
-                const formattedDate = new Date(block.created_at).toLocaleString();
-                const displayName = block.name || `${blockType.charAt(0).toUpperCase() + blockType.slice(1)} ${block.block_id.substring(0, 8)}`;
-                
-                return (
-                  <motion.li
-                    key={block.block_id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ duration: 0.3 }}
-                    className={`py-3 px-4 mb-2 rounded-lg cursor-pointer transition-all duration-300 ${
-                      currentBlockId === block.block_id 
-                        ? 'bg-blue-50 border-l-4 border-primary' 
-                        : 'bg-gray-100 hover:bg-gray-200'
-                    }`}
-                    onClick={() => handleBlockClick(block.block_id)}
-                  >
-                    <div className="block-content">
-                      <div className="text-gray-800 font-medium mb-1 truncate">
-                        {displayName}
+              {blocks
+                .filter(block => blockType === 'all' || block.type === blockType)
+                .map(block => {
+                  const formattedDate = new Date(block.created_at).toLocaleString();
+                  const displayName = block.name || `${block.type.charAt(0).toUpperCase() + block.type.slice(1)} ${block.block_id.substring(0, 8)}`;
+                  
+                  return (
+                    <motion.li
+                      key={block.block_id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ duration: 0.3 }}
+                      className={`py-3 px-4 mb-2 rounded-lg cursor-pointer transition-all duration-300 ${
+                        currentBlockId === block.block_id 
+                          ? 'bg-blue-50 border-l-4 border-primary' 
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                      onClick={() => handleBlockClick(block.block_id)}
+                    >
+                      <div className="block-content">
+                        <div className="text-gray-800 font-medium mb-1 truncate">
+                          {displayName}
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="text-xs text-gray-600">{formattedDate}</div>
+                          <button
+                            className="text-red-500 hover:text-red-700 transition-colors duration-300"
+                            title="Delete Block"
+                            onClick={(e) => handleDeleteBlock(e, block.block_id)}
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-600">{formattedDate}</div>
-                        <button
-                          className="text-red-500 hover:text-red-700 transition-colors duration-300"
-                          title="Delete Block"
-                          onClick={(e) => handleDeleteBlock(e, block.block_id)}
-                        >
-                          <i className="fas fa-trash-alt"></i>
-                        </button>
-                      </div>
-                    </div>
-                  </motion.li>
-                );
-              })}
+                    </motion.li>
+                  );
+                })}
             </ul>
           </AnimatePresence>
         )}
