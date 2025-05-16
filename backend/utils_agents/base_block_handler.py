@@ -31,7 +31,7 @@ class BaseBlockHandler(ABC):
             temperature=0.7
         )
         
-        # Steps in the ideal flow order
+        # Steps in the ideal flow order - maintained but not explicitly shown to users
         self.flow_steps = [
             "title",
             "abstract",
@@ -89,22 +89,22 @@ class BaseBlockHandler(ABC):
         agent = Agent(
             role="Conversation Guide",
             goal="Engage users in a friendly conversation about innovation",
-            backstory="You are a helpful assistant specialized in the KRAFT framework. You greet users warmly and guide them to share their ideas or problems.",
+            backstory="You are a helpful assistant for creative thinking. You're friendly, conversational, and naturally guide people without being overly instructional.",
             verbose=True,
             llm=self.llm
         )
         
-        # Block-specific prompts
+        # Block-specific prompts made more conversational
         prompts = {
-            "idea": "Share an innovative idea you'd like to develop",
-            "problem": "Describe a problem you'd like to solve",
-            "possibility": "Share a possibility you'd like to explore",
-            "moonshot": "Share an ambitious, transformative idea",
-            "needs": "Describe some needs you'd like to address",
-            "opportunity": "Share an opportunity you'd like to explore",
-            "concept": "Describe a concept you'd like to develop",
-            "outcome": "Share an outcome you'd like to achieve",
-            "general": "Share what's on your mind and I'll help classify it"
+            "idea": "What innovative idea are you thinking about?",
+            "problem": "What problem are you looking to solve?",
+            "possibility": "What kind of possibility interests you?",
+            "moonshot": "Tell me about that big, bold idea you're considering.",
+            "needs": "What needs are you focused on addressing?",
+            "opportunity": "What opportunity have you spotted?",
+            "concept": "What concept would you like to develop further?",
+            "outcome": "What outcome are you hoping to achieve?",
+            "general": "What's on your mind today?"
         }
         
         # Create task for generating a greeting response
@@ -112,17 +112,19 @@ class BaseBlockHandler(ABC):
             description=f"""
             The user has greeted you with: "{user_input}"
             
-            You're working with the {block_type} block in the KRAFT framework.
+            You're having a conversation about {block_type}s.
             
             Respond with a friendly greeting that:
             1. Acknowledges their greeting
-            2. Briefly explains what this {block_type} block can help them with
-            3. Encourages them to {prompts.get(block_type, "share their thoughts")}
+            2. Briefly explains you can help with {block_type}s
+            3. Asks an open-ended question: {prompts.get(block_type, "What's on your mind today?")}
             
-            Keep your response conversational, friendly, and concise (3-4 sentences).
+            Keep your response conversational, friendly, and concise (2-3 sentences).
+            Don't use bullet points, numbered lists, or markdown.
+            Avoid phrases like "I can help you with..." or "Would you like to..." - just ask naturally.
             """,
             agent=agent,
-            expected_output="A friendly greeting response"
+            expected_output="A friendly conversational greeting"
         )
         
         # Execute the task
@@ -142,7 +144,7 @@ class BaseBlockHandler(ABC):
             }
         except Exception as e:
             logger.error(f"Error generating greeting response: {str(e)}")
-            default_greeting = f"Hello! I'm your {block_type.capitalize()} assistant. How can I help you today?"
+            default_greeting = f"Hey there! What {block_type} are you thinking about today?"
             return {
                 "identified_as": "greeting",
                 "greeting_response": default_greeting,
@@ -173,6 +175,9 @@ class BaseBlockHandler(ABC):
         Returns:
             dict: Response with results and next step suggestion
         """
+        # Get conversation history (limit to last 10 messages)
+        history = self._get_conversation_history(limit=10)
+        
         # Check if the message is a greeting
         if self.is_greeting(user_message):
             block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
@@ -186,11 +191,11 @@ class BaseBlockHandler(ABC):
         current_step = self._get_current_step(flow_status)
         
         if not current_step:
-            return {"suggestion": "All steps have been completed for this block. Is there anything else you'd like to discuss?"}
+            return {"suggestion": "Is there anything else you'd like to explore about this?"}
             
         if response_type == "affirmative":
             # Generate the requested content
-            result = self._generate_content(current_step, user_message, flow_status)
+            result = self._generate_content(current_step, user_message, flow_status, history)
             
             # Update flow status
             updated_flow_status = flow_status.copy()
@@ -199,10 +204,26 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
+            # Create more natural follow-up questions based on next step
+            follow_ups = {
+                "title": "How about we give this a clear title?",
+                "abstract": "Can you tell me more about the core idea?",
+                "stakeholders": "Who do you think would be involved or affected by this?",
+                "tags": "What key themes or categories would you associate with this?",
+                "assumptions": "What assumptions are we making here?",
+                "constraints": "What limitations or constraints should we consider?",
+                "risks": "Are there any potential risks we should think about?",
+                "aspects_implications": "How might this affect different areas?",
+                "impact": "What impact do you think this might have?",
+                "connections": "How does this connect to other ideas or systems?",
+                "classifications": "How would you categorize or classify this?",
+                "think_models": "Let's look at this from different perspectives. Any thoughts?"
+            }
+            
             if next_step:
-                suggestion = f"Would you like to generate {next_step.replace('_', ' ')} based on this?"
+                suggestion = follow_ups.get(next_step, f"What about the {next_step.replace('_', ' ')}?")
             else:
-                suggestion = "All steps have been completed for this block. Is there something specific you'd like to explore next?"
+                suggestion = "That covers the main points! Any other aspects you'd like to explore?"
             
             # Prepare response
             response = {
@@ -221,10 +242,25 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
+            follow_ups = {
+                "title": "Let's give this a clear title instead?",
+                "abstract": "How about describing the core idea?",
+                "stakeholders": "Who do you think would be involved here?",
+                "tags": "What key themes would you associate with this?",
+                "assumptions": "What assumptions might we be making?",
+                "constraints": "Are there any limitations we should think about?",
+                "risks": "Any potential risks to consider?",
+                "aspects_implications": "How might this affect different areas?",
+                "impact": "What kind of impact could this have?",
+                "connections": "How does this connect to other ideas?",
+                "classifications": "How would you categorize this?",
+                "think_models": "Let's look at this from different angles. Thoughts?"
+            }
+            
             if next_step:
-                suggestion = f"I understand you want to skip this step. Moving on - would you like to generate {next_step.replace('_', ' ')} instead?"
+                suggestion = follow_ups.get(next_step, f"Let's talk about the {next_step.replace('_', ' ')} instead.")
             else:
-                suggestion = "I understand you want to skip this step. We've actually completed all the steps for this block. Is there something else you'd like to explore?"
+                suggestion = "No problem. What else would you like to discuss about this?"
             
             response = {
                 "suggestion": suggestion,
@@ -235,7 +271,7 @@ class BaseBlockHandler(ABC):
             
         elif response_type == "negative":
             # User doesn't want to continue with the flow
-            suggestion = f"I understand you don't want to continue with {current_step.replace('_', ' ')} right now. The step is important for a comprehensive analysis, but we can always come back to it. Would you like to discuss something else about this topic, or should we continue with a different approach?"
+            suggestion = "No problem. What aspects of this would you prefer to focus on?"
             
             return {
                 "suggestion": suggestion
@@ -243,11 +279,11 @@ class BaseBlockHandler(ABC):
             
         elif response_type == "question":
             # Handle user questions about the process
-            return self._handle_process_question(user_message, current_step)
+            return self._handle_process_question(user_message, current_step, history)
             
         else:  # "other" - user is talking about something unrelated or giving open input
             # Generate a contextual response using LLM
-            response = self._generate_contextual_response(user_message, current_step, flow_status)
+            response = self._generate_contextual_response(user_message, current_step, flow_status, history)
             
             return {
                 "suggestion": response
@@ -312,42 +348,73 @@ class BaseBlockHandler(ABC):
         # If none of the above, classify as "other"
         return "other"
     
-    # Rest of the methods remain the same
-    def _handle_process_question(self, user_message, current_step):
+    def _handle_process_question(self, user_message, current_step, history):
         """
         Handle questions about the process
         
         Args:
             user_message: User's question
             current_step: Current step in the flow
+            history: Conversation history
             
         Returns:
             dict: Response with explanation
         """
         # Create a specialized agent for answering process questions
         agent = Agent(
-            role="Process Guide",
-            goal="Explain the KRAFT framework process clearly",
-            backstory="You are an expert in the KRAFT framework and help users understand the process and methodology.",
+            role="Conversation Guide",
+            goal="Help users understand the creative thinking process clearly",
+            backstory="You're a friendly guide who helps people understand creative thinking in a natural way. You avoid formal language, bullet points, or explicit instructions.",
             verbose=True,
             llm=self.llm
         )
         
+        # Convert steps to natural language
+        step_descriptions = {
+            "title": "giving your idea a clear name",
+            "abstract": "summarizing the core concept",
+            "stakeholders": "thinking about who would be involved or affected",
+            "tags": "identifying key themes or categories",
+            "assumptions": "recognizing what assumptions we're making",
+            "constraints": "understanding limitations or constraints",
+            "risks": "considering potential risks",
+            "aspects_implications": "exploring different aspects and implications",
+            "impact": "considering the potential impact",
+            "connections": "finding connections to other ideas or systems",
+            "classifications": "categorizing the idea",
+            "think_models": "looking at different thinking perspectives"
+        }
+        
+        current_step_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
+        
         # Create task for answering the question
         task = Task(
             description=f"""
-            The user has asked a question about the KRAFT framework process:
+            The user has asked a question:
             "{user_message}"
             
-            They are currently at the "{current_step}" step of the flow.
+            You're currently talking about {current_step_desc}.
             
-            Provide a helpful, concise explanation that answers their question while encouraging them to continue with the flow.
-            Emphasize the value of following the structured approach but be understanding if they want flexibility.
+            Conversation history (last few messages):
+            {self._format_history_for_prompt(history)}
             
-            End your response by asking if they want to proceed with the current step ({current_step}).
+            Give a helpful, conversational explanation that:
+            - Answers their question directly and naturally
+            - Uses everyday language, not technical jargon
+            - Avoids bullet points, numbers, or explicit instructions
+            - Ends with a natural question that continues the conversation
+            - Is helpful but brief (2-4 sentences)
+            
+            Your explanation should NOT include phrases like:
+            - "Would you like to..."
+            - "The next step is..."
+            - "We are currently at the step of..."
+            - "Let me explain the process..."
+            
+            Instead, just answer naturally as in a normal conversation.
             """,
             agent=agent,
-            expected_output="A helpful explanation and guidance"
+            expected_output="A natural conversational response"
         )
         
         # Execute the task
@@ -363,9 +430,9 @@ class BaseBlockHandler(ABC):
             return {"suggestion": result.raw.strip()}
         except Exception as e:
             logger.error(f"Error handling process question: {str(e)}")
-            return {"suggestion": f"I apologize, but I'm having trouble understanding your question. Let's continue with the {current_step.replace('_', ' ')} step - would you like to proceed?"}
+            return {"suggestion": f"I think we were talking about {current_step_desc}. What are your thoughts on that?"}
     
-    def _generate_contextual_response(self, user_message, current_step, flow_status):
+    def _generate_contextual_response(self, user_message, current_step, flow_status, history):
         """
         Generate a contextual response for an unstructured user message
         
@@ -373,20 +440,38 @@ class BaseBlockHandler(ABC):
             user_message: User's message
             current_step: Current step in the flow
             flow_status: Current flow status
+            history: Conversation history
             
         Returns:
             str: Contextual response that guides back to the flow
         """
-        # Get the initial input and conversation history
+        # Get the initial input
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
-        history = self._get_conversation_history()
+        
+        # Step descriptions in conversational language
+        step_descriptions = {
+            "title": "a clear name for this",
+            "abstract": "the core concept",
+            "stakeholders": "who would be involved",
+            "tags": "key themes or categories",
+            "assumptions": "underlying assumptions",
+            "constraints": "potential limitations",
+            "risks": "possible risks",
+            "aspects_implications": "different aspects and implications",
+            "impact": "potential impact",
+            "connections": "connections to other ideas",
+            "classifications": "how to categorize this",
+            "think_models": "different perspectives"
+        }
+        
+        current_step_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
         
         # Create an agent for contextual responses
         agent = Agent(
             role="Conversation Guide",
-            goal="Keep the conversation focused and productive",
-            backstory="You help users stay on track with the KRAFT framework while being responsive to their needs and questions.",
+            goal="Keep conversations natural and engaging",
+            backstory="You're a thoughtful conversation partner who helps develop ideas naturally. You respond to what people say and gently guide the conversation without being pushy.",
             verbose=True,
             llm=self.llm
         )
@@ -394,22 +479,30 @@ class BaseBlockHandler(ABC):
         # Create task for generating a response
         task = Task(
             description=f"""
-            The user is working through the KRAFT framework and is currently at the "{current_step}" step.
+            Here's what the conversation is about: "{initial_input}"
             
-            Initial input: "{initial_input}"
+            Recent conversation:
+            {self._format_history_for_prompt(history)}
             
             User's latest message: "{user_message}"
             
-            Create a helpful response that:
-            1. Acknowledges what the user has said
-            2. Provides relevant information or thoughts on their input
-            3. Gently guides them back to the current step in the framework
-            4. Ends by asking if they want to proceed with generating content for {current_step.replace('_', ' ')}
+            We're currently exploring {current_step_desc}.
             
-            Maintain a conversational, helpful tone. Be flexible while encouraging the structured approach.
+            Create a helpful response that:
+            - Directly addresses what they've just said
+            - Feels like a natural conversation, not a structured exercise
+            - Gently connects to {current_step_desc} if relevant
+            - Ends with a natural question to continue the conversation
+            - Is brief (2-3 sentences)
+            
+            IMPORTANT:
+            - Don't use phrases like "the next step", "would you like to", or "shall we continue"
+            - Don't mention any "process", "framework", or "steps"
+            - Don't use bullet points, formatting or markdown
+            - Keep the tone casual but professional
             """,
             agent=agent,
-            expected_output="A contextual response that guides back to the framework"
+            expected_output="A conversational response"
         )
         
         # Execute the task
@@ -425,7 +518,7 @@ class BaseBlockHandler(ABC):
             return result.raw.strip()
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
-            return f"I see. Let's continue with our process - would you like to generate {current_step.replace('_', ' ')} now?"
+            return f"I see what you mean. What are your thoughts on {current_step_desc}?"
     
     def _get_current_step(self, flow_status):
         """Get the current step based on flow status"""
@@ -444,13 +537,30 @@ class BaseBlockHandler(ABC):
                 
         return None
     
-    def _get_conversation_history(self):
-        """Get the conversation history for context"""
+    def _get_conversation_history(self, limit=10):
+        """
+        Get the conversation history for context
+        
+        Args:
+            limit: Maximum number of messages to retrieve
+        """
         history = list(self.history_collection.find(
             {"block_id": self.block_id, "user_id": self.user_id}
-        ).sort("created_at", 1))
+        ).sort("created_at", -1).limit(limit))
         
-        return history
+        # Reverse to get chronological order
+        return list(reversed(history))
+    
+    def _format_history_for_prompt(self, history):
+        """Format conversation history for inclusion in prompts"""
+        formatted = []
+        for msg in history:
+            role = msg.get("role", "").upper()
+            content = msg.get("message", "")
+            if role and content:
+                formatted.append(f"{role}: {content}")
+        
+        return "\n".join(formatted[-5:])  # Only use last 5 for prompt context
     
     def _get_previous_content(self, history):
         """Extract previously generated content from history"""
@@ -467,7 +577,7 @@ class BaseBlockHandler(ABC):
         
         return content
     
-    def _generate_content(self, step, user_message, flow_status):
+    def _generate_content(self, step, user_message, flow_status, history):
         """
         Generate content for a specific step
         
@@ -475,6 +585,7 @@ class BaseBlockHandler(ABC):
             step: Current step to generate
             user_message: User's message
             flow_status: Current flow status
+            history: Conversation history
             
         Returns:
             str or dict: Generated content
@@ -482,9 +593,6 @@ class BaseBlockHandler(ABC):
         # Get the initial input and previous content
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
-        
-        # Get conversation history
-        history = self._get_conversation_history()
         
         # Get previously generated content for context
         previous_content = self._get_previous_content(history)
@@ -494,7 +602,7 @@ class BaseBlockHandler(ABC):
         
         # Create task with context
         task = Task(
-            description=self._get_task_description(step, initial_input, previous_content, user_message),
+            description=self._get_task_description(step, initial_input, previous_content, user_message, history),
             agent=agent,
             expected_output=f"Generated {step} content"
         )
@@ -514,99 +622,106 @@ class BaseBlockHandler(ABC):
             return self._parse_result(step, result.raw)
         except Exception as e:
             logger.error(f"Error generating content for {step}: {str(e)}")
-            return f"Sorry, there was an error generating the {step}. Please try again."
+            return f"I'm having trouble with this. Maybe we can approach it differently?"
     
     def _create_agent_for_step(self, step):
         """Create a specialized agent for a specific step"""
         step_descriptions = {
-            "title": "Generate a concise, compelling title for the content",
-            "abstract": "Create a comprehensive abstract that summarizes the main points",
-            "stakeholders": "Identify the relevant stakeholders who would be affected",
-            "tags": "Generate appropriate tags for categorization",
-            "assumptions": "Identify key assumptions underlying the concept",
-            "constraints": "Define constraints or limitations that might affect implementation",
-            "risks": "Analyze potential risks associated with the concept",
-            "aspects_implications": "Explore different aspects and their implications",
-            "impact": "Assess the potential impact across various dimensions",
-            "connections": "Identify connections to other concepts or systems",
-            "classifications": "Classify the concept according to relevant taxonomies",
-            "think_models": "Apply appropriate thinking models to analyze the concept"
+            "title": "creating concise, compelling titles",
+            "abstract": "summarizing complex concepts clearly",
+            "stakeholders": "identifying relevant people and groups",
+            "tags": "categorizing ideas effectively",
+            "assumptions": "uncovering hidden assumptions",
+            "constraints": "recognizing practical limitations",
+            "risks": "analyzing potential problems",
+            "aspects_implications": "exploring different angles and consequences",
+            "impact": "evaluating potential effects",
+            "connections": "finding relationships between ideas",
+            "classifications": "organizing concepts into useful categories",
+            "think_models": "applying different thinking frameworks"
         }
         
+        expertise = step_descriptions.get(step, f"working with {step}")
+        
         return Agent(
-            role=f"{step.capitalize()} Specialist",
-            goal=f"Generate high-quality {step} content",
-            backstory=f"You are an expert in creating {step} content for concepts. You understand how to distill information into valuable {step} insights.",
+            role=f"Creative Thinking Guide",
+            goal=f"Help develop excellent {step.replace('_', ' ')} content",
+            backstory=f"You're an expert in {expertise}. You can quickly understand ideas and help improve them through thoughtful conversation.",
             verbose=True,
             llm=self.llm
         )
     
-    def _get_task_description(self, step, initial_input, previous_content, user_message):
+    def _get_task_description(self, step, initial_input, previous_content, user_message, history):
         """Generate a task description for a specific step"""
         # Base context with initial input
-        context = f"Initial input: \"{initial_input}\"\n\n"
+        context = f"Topic/idea: \"{initial_input}\"\n\n"
+        
+        # Add recent conversation history (limit to last 5 messages for context)
+        context += "Recent conversation:\n"
+        context += self._format_history_for_prompt(history) + "\n\n"
         
         # Add previously generated content for context
         if previous_content:
-            context += "Previously generated content:\n"
+            context += "Previously developed content:\n"
             for prev_step, content in previous_content.items():
                 if isinstance(content, dict):
-                    context += f"{prev_step.upper()}: {str(content)}\n"
+                    # For JSON content, add a summary instead of raw JSON
+                    summary = f"({len(content)} items)"
+                    context += f"{prev_step}: {summary}\n"
                 else:
-                    context += f"{prev_step.upper()}: {content}\n"
+                    context += f"{prev_step}: {content}\n"
         
-        # Step-specific instructions
+        # Step-specific instructions in more conversational language
         instructions = {
-            "title": """Generate a concise, compelling title (max 10 words) that captures the essence of the concept.
-            Make it specific, memorable, and professional. Avoid generic phrases.
-            Return just the title as plain text, no additional explanation.""",
+            "title": """Create a short, memorable title (5-10 words) that captures the essence of this concept.
+            Make it specific and clear. Don't use generic phrases.
+            Return just the title itself, nothing else.""",
             
-            "abstract": """Create a comprehensive abstract (150-250 words) that summarizes the key aspects of the concept.
-            Include: what the concept is, the problem it addresses, target audience/stakeholders, and potential impact.
-            Use clear, professional language. Be specific rather than general.
-            Return the abstract as plain text.""",
+            "abstract": """Write a brief summary (150-200 words) that explains what this concept is about.
+            Cover what it is, why it matters, and who it's for.
+            Use clear language a general audience would understand.
+            Return just the summary text.""",
             
-            "stakeholders": """Identify 3-7 key stakeholders or user groups who would be affected by or interested in this concept.
-            For each, briefly explain their interest or relation to the concept.
-            Return as a JSON array of objects with 'stakeholder' and 'interest' keys.""",
+            "stakeholders": """Identify 3-5 key people or groups who would care about this concept.
+            For each, briefly explain why they would care.
+            Format as a JSON array of objects with 'stakeholder' and 'interest' keys.""",
             
-            "tags": """Generate 3-6 relevant tags that categorize this concept.
-            Tags should reflect the domain, purpose, technology, or other relevant attributes.
-            Return as a JSON array of tag strings.""",
+            "tags": """Suggest 3-6 keywords or phrases that describe this concept.
+            Choose words that would help categorize or find this concept.
+            Format as a JSON array of strings.""",
             
-            "assumptions": """Identify 3-5 key assumptions underlying this concept.
-            These are things that must be true for the concept to work but might not be explicitly stated.
-            Return as a JSON array of assumption strings.""",
+            "assumptions": """Identify 3-5 things we're taking for granted for this concept to work.
+            These might not be explicitly stated but are necessary for success.
+            Format as a JSON array of strings.""",
             
-            "constraints": """Define 3-5 constraints or limitations that might affect implementation of this concept.
+            "constraints": """Identify 3-5 limitations or restrictions that might affect this concept.
             These could be technical, financial, legal, ethical, or practical considerations.
-            Return as a JSON array of constraint strings.""",
+            Format as a JSON array of strings.""",
             
-            "risks": """Analyze 3-5 potential risks associated with this concept.
-            Include both implementation risks and potential negative outcomes if implemented.
-            Return as a JSON array of risk objects with 'risk' and 'mitigation' keys.""",
+            "risks": """Identify 3-5 potential problems or challenges for this concept.
+            For each, suggest a possible way to address or mitigate the risk.
+            Format as a JSON array of objects with 'risk' and 'mitigation' keys.""",
             
-            "aspects_implications": """Explore different aspects of this concept and their implications.
-            Consider at least 3 different perspectives (e.g., technical, social, economic).
-            Return as a JSON object with aspect names as keys and implication descriptions as values.""",
+            "aspects_implications": """Explore 3-5 different angles or dimensions of this concept.
+            For each, describe what it might mean or lead to.
+            Format as a JSON object with aspect names as keys and implications as values.""",
             
-            "impact": """Assess the potential impact of this concept across 3-5 different dimensions.
-            These could include social impact, environmental impact, economic impact, etc.
-            Rate each dimension from 1-10 for significance.
-            Return as a JSON array of impact objects with 'dimension' and 'rating' keys.""",
+            "impact": """Consider 3-5 areas where this concept could make a difference.
+            Rate each area from 1-10 for how significant the impact might be.
+            Format as a JSON array of objects with 'dimension' and 'rating' keys.""",
             
-            "connections": """Identify 3-5 connections between this concept and other concepts, systems, or domains.
-            Explain how they relate or could be integrated.
-            Return as a JSON array of connection objects with 'connection' and 'relationship' keys.""",
+            "connections": """Identify 3-5 ways this concept connects to other ideas or fields.
+            Explain how they relate to each other.
+            Format as a JSON array of objects with 'connection' and 'relationship' keys.""",
             
-            "classifications": """Classify this concept according to 2-3 relevant taxonomies.
-            These could include innovation type (incremental/disruptive/radical), complexity level, maturity stage, etc.
-            Return as a JSON object with taxonomy names as keys and classification values.""",
+            "classifications": """Categorize this concept in 2-3 different ways.
+            This might include type of innovation, complexity level, or development stage.
+            Format as a JSON object with category names as keys and classification values.""",
             
-            "think_models": """Apply 3-5 appropriate thinking models to analyze this concept.
-            These could include SWOT analysis, Six Thinking Hats, First Principles, etc.
-            Provide a brief insight from each model's perspective.
-            Return as a JSON object with model names as keys and insights as values."""
+            "think_models": """Apply 3-5 different thinking approaches to this concept.
+            Examples: SWOT analysis, First Principles, Six Thinking Hats, etc.
+            For each approach, provide a brief insight.
+            Format as a JSON object with model names as keys and insights as values."""
         }
         
         task_description = f"""
@@ -614,7 +729,9 @@ class BaseBlockHandler(ABC):
         
         User's message: "{user_message}"
         
-        TASK: {instructions.get(step, f"Generate content for {step}")}
+        Your task: {instructions.get(step, f"Generate content for {step}")}
+        
+        Remember: The content should feel natural and helpful, not like a rigid template.
         """
         
         return task_description

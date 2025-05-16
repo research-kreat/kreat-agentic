@@ -25,11 +25,10 @@ class IdeaBlockHandler(BaseBlockHandler):
         
         # Create specialized agent for idea initialization
         idea_agent = Agent(
-            role="Idea Framework Specialist",
-            goal="Help users develop innovative concepts and ideas",
-            backstory="""You are an expert in idea development and innovation frameworks.
-            You help users take their initial concepts and develop them into well-structured
-            and thoughtful ideas with clear titles, abstracts, and supporting details.""",
+            role="Creative Thinking Partner",
+            goal="Help people develop innovative ideas naturally",
+            backstory="""You're a thoughtful conversation partner who helps people refine their ideas through natural dialogue. 
+            You avoid sounding like an instruction manual or process guide.""",
             verbose=True,
             llm=self.llm
         )
@@ -37,18 +36,23 @@ class IdeaBlockHandler(BaseBlockHandler):
         # Create task for initial analysis
         analysis_task = Task(
             description=f"""
-            Analyze the following user input as an idea or concept:
+            The person has shared this idea:
             
             "{user_input}"
             
-            Provide a brief analysis of what makes this an idea and what potential value it might have.
-            Be encouraging and supportive of the user's creativity.
+            First, understand what makes this an interesting idea and why it might be valuable.
             
-            Your output should be a brief analysis (2-3 sentences) that validates the user's idea
-            and suggests its potential value or application.
+            Then, respond with 2-3 sentences that:
+            1. Acknowledge their idea positively
+            2. Highlight a potential value or benefit their idea offers
+            3. End with a natural question about what they want to call this idea
+            
+            Keep your response conversational and natural - avoid phrases like "Would you like to...", "The next step is...", or "Let's generate a..."
+            
+            Don't use markdown, bullet points, or structured formatting.
             """,
             agent=idea_agent,
-            expected_output="Brief analysis of the idea's potential"
+            expected_output="Brief analysis and natural follow-up"
         )
         
         # Execute the analysis
@@ -66,7 +70,7 @@ class IdeaBlockHandler(BaseBlockHandler):
             response = {
                 "identified_as": "idea",
                 "analysis": result.raw.strip(),
-                "suggestion": "Would you like to generate a title for this idea?"
+                "suggestion": result.raw.strip()
             }
             
             return response
@@ -76,6 +80,6 @@ class IdeaBlockHandler(BaseBlockHandler):
             # Fallback response
             return {
                 "identified_as": "idea",
-                "analysis": "This appears to be an interesting idea with potential value.",
-                "suggestion": "Would you like to generate a title for this idea?"
+                "analysis": "That's an interesting idea with potential. What would you like to call it?",
+                "suggestion": "That's an interesting idea with potential. What would you like to call it?"
             }

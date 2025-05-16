@@ -6,6 +6,8 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 import logging
+import json
+from helpers.general import sanitize_response
 
 # Import our block handlers
 from block_agents.idea_block import IdeaBlockHandler
@@ -129,6 +131,9 @@ def analyze_general_chat():
         # Get initial response
         response = handler.initialize_block(user_input)
         
+        # Sanitize response to ensure plain text
+        response = sanitize_response(response)
+        
         # If it's identified as a greeting, we need to handle it differently
         if response.get("identified_as") == "greeting":
             greeting_message = response.get("greeting_response")
@@ -153,12 +158,15 @@ def analyze_general_chat():
                 }
             })
         else:
-            # Store assistant response in history for non-greeting messages
+            # For non-greeting messages, use the suggestion directly
+            suggestion = response.get("suggestion", "")
+            
+            # Store assistant response in history
             history_collection.insert_one({
                 "user_id": user_id,
                 "block_id": block_id,
                 "role": "assistant",
-                "message": response["suggestion"],
+                "message": suggestion,
                 "result": response,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
@@ -196,6 +204,20 @@ def analyze_existing_block():
     
     block_type = flow_data.get("block_type")
     
+    # Limit history to only the last 10 messages before adding this one
+    history_items = list(history_collection.find(
+        {"block_id": block_id, "user_id": user_id}
+    ).sort("created_at", -1).limit(10))
+    
+    # Delete oldest messages if there are more than 10
+    if len(history_items) >= 10:
+        keep_ids = [item["_id"] for item in history_items]
+        history_collection.delete_many({
+            "block_id": block_id, 
+            "user_id": user_id,
+            "_id": {"$nin": keep_ids}
+        })
+    
     # Store user message in history
     history_collection.insert_one({
         "user_id": user_id,
@@ -213,6 +235,9 @@ def analyze_existing_block():
         
         # Process the message
         response = handler.process_message(user_input, flow_data["flow_status"])
+        
+        # Sanitize response to ensure plain text
+        response = sanitize_response(response)
         
         # If it's identified as a greeting, handle it appropriately
         if response.get("identified_as") == "greeting":
@@ -248,14 +273,26 @@ def analyze_existing_block():
                 )
                 
                 # Remove this from response as it's internal
-                del response["updated_flow_status"]
+                internal_updated_flow = response.pop("updated_flow_status", None)
+            
+            # Get the suggestion for the message content
+            suggestion = response.get("suggestion", "")
+            
+            # If suggestion is a JSON string, convert it to proper JSON
+            if isinstance(suggestion, str) and (suggestion.startswith('{') or suggestion.startswith('[')):
+                try:
+                    json_obj = json.loads(suggestion)
+                    response["suggestion"] = json.dumps(json_obj, indent=2)
+                except:
+                    # If not valid JSON, leave as is
+                    pass
             
             # Store assistant response in history
             history_collection.insert_one({
                 "user_id": user_id,
                 "block_id": block_id,
                 "role": "assistant",
-                "message": response.get("suggestion", ""),
+                "message": suggestion,
                 "result": response,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
@@ -315,11 +352,19 @@ def get_block(block_id):
     if not block:
         return jsonify({'error': 'Block not found'}), 404
     
-    # Fetch messages for this block
+    # Fetch messages for this block (limit to 10 most recent)
     messages = list(history_collection.find(
         {"block_id": block_id, "user_id": user_id},
         {'_id': 0, 'user_id': 0, 'block_id': 0, 'result': 0}
-    ).sort("created_at", 1))
+    ).sort("created_at", -1).limit(10))
+    
+    # Sort chronologically (oldest first)
+    messages.reverse()
+    
+    # Sanitize message content to ensure plain text
+    for message in messages:
+        if 'message' in message:
+            message['message'] = sanitize_response(message['message'])
     
     return jsonify({
         "block": block,
@@ -392,7 +437,7 @@ def clear_block(block_id):
         "user_id": user_id,
         "block_id": block_id,
         "role": "system",
-        "message": "Chat has been cleared. How can I help you today?",
+        "message": "Chat cleared. What's on your mind?",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     })
@@ -455,20 +500,20 @@ def create_new_block():
         "updated_at": datetime.utcnow()
     })
     
-    # Add welcome message based on block type
+    # Add welcome message based on block type - making it more conversational
     welcome_messages = {
-        "idea": "Welcome to Idea Development. I can help you craft innovative concepts and solutions. What would you like to explore today?",
-        "problem": "Welcome to Problem Definition. I can help you articulate and analyze challenges. What problem would you like to address?",
-        "possibility": "Welcome to Possibility Explorer. I can help you discover potential solutions and approaches. What would you like to explore?",
-        "moonshot": "Welcome to Moonshot Ideation. I can help you develop ambitious, transformative ideas. What big challenge would you like to tackle?",
-        "needs": "Welcome to Needs Analysis. I can help you identify and understand requirements and goals. What needs would you like to analyze?",
-        "opportunity": "Welcome to Opportunity Assessment. I can help you discover and evaluate potential markets or directions. What opportunity interests you?",
-        "concept": "Welcome to Concept Development. I can help you structure and refine solutions. What concept would you like to develop?",
-        "outcome": "Welcome to Outcome Evaluation. I can help you measure and analyze results. What outcomes would you like to evaluate?",
-        "general": "Welcome to KRAFT. I can assist with creative problem-solving and innovation. How can I help you today?"
+        "idea": "Hi there! Let's explore some innovative ideas together. What's on your mind?",
+        "problem": "Hi! I'm here to help you think through challenges. What problem are you working on?",
+        "possibility": "Hey there! Let's explore what might be possible. What are you curious about?",
+        "moonshot": "Hi! I'm here for the big, bold ideas. What ambitious thought are you exploring?",
+        "needs": "Hello! Let's talk about key needs and requirements. What are you focusing on?",
+        "opportunity": "Hi there! Let's explore promising opportunities together. What's caught your attention?",
+        "concept": "Hello! I'm here to help develop concepts and solutions. What are you working on?",
+        "outcome": "Hi! Let's talk about outcomes and results. What are you hoping to achieve?",
+        "general": "Hello! I'm here to help with creative thinking. What's on your mind today?"
     }
     
-    welcome_msg = welcome_messages.get(block_type, "Welcome to KRAFT. How can I assist you today?")
+    welcome_msg = welcome_messages.get(block_type, "Hi there! What's on your mind today?")
     
     history_collection.insert_one({
         "user_id": user_id,

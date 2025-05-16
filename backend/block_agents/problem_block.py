@@ -25,11 +25,10 @@ class ProblemBlockHandler(BaseBlockHandler):
         
         # Create specialized agent for problem initialization
         problem_agent = Agent(
-            role="Problem Framework Specialist",
-            goal="Help users define and explore challenges clearly",
-            backstory="""You are an expert in problem definition and analysis.
-            You help users articulate their challenges clearly and comprehensively,
-            enabling better understanding and solution development.""",
+            role="Problem Exploration Partner",
+            goal="Help people clarify and explore challenges naturally",
+            backstory="""You're a thoughtful conversation partner who helps people understand their problems more deeply through natural dialogue. 
+            You avoid sounding like an instruction manual or process guide.""",
             verbose=True,
             llm=self.llm
         )
@@ -37,18 +36,23 @@ class ProblemBlockHandler(BaseBlockHandler):
         # Create task for initial analysis
         analysis_task = Task(
             description=f"""
-            Analyze the following user input as a problem or challenge:
+            The person has shared this problem:
             
             "{user_input}"
             
-            Provide a brief analysis of what makes this a problem worth solving and its potential impact.
-            Be encouraging and supportive of the user's focus on this problem.
+            First, understand what makes this an important problem and why addressing it would be valuable.
             
-            Your output should be a brief analysis (2-3 sentences) that validates the importance of the problem
-            and suggests why addressing it would be valuable.
+            Then, respond with 2-3 sentences that:
+            1. Acknowledge the significance of the problem they've identified
+            2. Highlight why addressing this problem matters
+            3. End with a natural question about what they might call this problem
+            
+            Keep your response conversational and natural - avoid phrases like "Would you like to...", "The next step is...", or "Let's generate a..."
+            
+            Don't use markdown, bullet points, or structured formatting.
             """,
             agent=problem_agent,
-            expected_output="Brief analysis of the problem's significance"
+            expected_output="Brief analysis and natural follow-up"
         )
         
         # Execute the analysis
@@ -66,7 +70,7 @@ class ProblemBlockHandler(BaseBlockHandler):
             response = {
                 "identified_as": "problem",
                 "analysis": result.raw.strip(),
-                "suggestion": "Would you like to generate a title for this problem?"
+                "suggestion": result.raw.strip()  # Use the same natural response
             }
             
             return response
@@ -76,6 +80,6 @@ class ProblemBlockHandler(BaseBlockHandler):
             # Fallback response
             return {
                 "identified_as": "problem",
-                "analysis": "This appears to be an important problem with significant implications worth addressing.",
-                "suggestion": "Would you like to generate a title for this problem?"
+                "analysis": "That's a significant challenge worth addressing. What would you call this problem?",
+                "suggestion": "That's a significant challenge worth addressing. What would you call this problem?"
             }

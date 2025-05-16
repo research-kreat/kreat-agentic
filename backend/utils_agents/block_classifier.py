@@ -42,11 +42,11 @@ def classify_user_input(user_input):
         
         # Create classification agent
         classification_agent = Agent(
-            role="Block Classifier",
-            goal="Accurately classify user inputs into the correct block type",
-            backstory="""You are an expert in understanding and categorizing user inputs 
-            into the correct KRAFT framework block type. You analyze the semantics and 
-            intent of user messages to determine which block best represents their needs.""",
+            role="Conversation Analyst",
+            goal="Understand what people are trying to discuss",
+            backstory="""You're good at understanding what topics people want to talk about. 
+            When someone shares a thought, you can tell if they're talking about an idea, 
+            a problem, a possibility, or something else.""",
             verbose=True,
             llm=llm
         )
@@ -54,22 +54,22 @@ def classify_user_input(user_input):
         # Classification task
         classification_task = Task(
             description=f"""
-            Analyze the following user input and classify it into one of the eight KRAFT framework block types:
+            Read what this person has shared:
             
-            User Input: "{user_input}"
+            "{user_input}"
             
-            The eight block types are:
-            1. "idea" - Creative concepts and innovative solutions
-            2. "problem" - Issues, challenges, or obstacles that need addressing
-            3. "possibility" - Potential approaches or solutions to explore
-            4. "moonshot" - Ambitious, potentially transformative ideas (IFR - Ideal Final Result)
-            5. "needs" - Requirements, demands, or necessities
-            6. "opportunity" - Favorable circumstances or chances for advancement
-            7. "concept" - Structured solutions or frameworks
-            8. "outcome" - Results, consequences, or end states
+            Figure out which of these categories fits best:
+            - "idea" - They're sharing a creative concept or innovative solution
+            - "problem" - They're describing an issue or challenge that needs solving
+            - "possibility" - They're exploring a potential approach or solution
+            - "moonshot" - They're proposing an ambitious, potentially transformative idea
+            - "needs" - They're talking about requirements or necessities
+            - "opportunity" - They're pointing out a favorable circumstance or chance
+            - "concept" - They're outlining a structured solution or framework
+            - "outcome" - They're discussing results or end states
             
-            IMPORTANT: If the input is just a greeting (like "hello", "hi", "hey there", etc.) with no substantial content,
-            identify this as a greeting and return appropriate values.
+            IMPORTANT: If they're just saying hello (like "hello", "hi", "hey there") with no real content,
+            mark this as a greeting.
             
             Your output must be EXACTLY in this JSON format:
             {{
