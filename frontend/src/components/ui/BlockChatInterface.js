@@ -115,7 +115,7 @@ export default function BlockChatInterface({ blockType = 'general' }) {
   // Handle sending a message
   const handleSendMessage = async (content) => {
     if (!currentBlockId || !content.trim()) return;
-
+  
     // Get userId from store
     const currentUserId = useChatStore.getState().userId;
     if (!currentUserId) {
@@ -125,7 +125,7 @@ export default function BlockChatInterface({ blockType = 'general' }) {
       });
       return;
     }
-
+  
     // Add user message to chat
     const userMessage = {
       role: 'user',
@@ -133,10 +133,10 @@ export default function BlockChatInterface({ blockType = 'general' }) {
       timestamp: new Date().toISOString()
     };
     addMessage(userMessage);
-
+  
     // Set typing indicator
     setIsTyping(true);
-
+  
     try {
       // Use the centralized API
       const data = await api.analyzeBlock({
@@ -156,6 +156,16 @@ export default function BlockChatInterface({ blockType = 'general' }) {
         // For structured block responses
         if (data.response.suggestion) {
           responseContent = data.response.suggestion;
+          
+          // Check if there's a classification message to display first
+          if (data.response.classification_message) {
+            // Add classification message as a separate system message
+            addMessage({
+              role: 'system',
+              content: data.response.classification_message,
+              timestamp: new Date().toISOString()
+            });
+          }
         } else if (data.response.analysis) {
           // Initial block analysis
           responseContent = `${data.response.analysis}\n\n${data.response.suggestion}`;
@@ -163,6 +173,17 @@ export default function BlockChatInterface({ blockType = 'general' }) {
           // Fallback to serializing the response
           responseContent = JSON.stringify(data.response, null, 2);
         }
+        
+        // Format step data for better readability
+        Object.keys(data.response).forEach(key => {
+          if (key !== 'suggestion' && key !== 'updated_flow_status' && key !== 'classification_message') {
+            const stepData = data.response[key];
+            if (Array.isArray(stepData)) {
+              // Format arrays for better display
+              fullResponseData[key] = stepData;
+            }
+          }
+        });
         
         // If this is a new block with a backend ID, update the block info
         if (data.block_id && (!blockInfo.blockId || blockInfo.blockId !== data.block_id)) {

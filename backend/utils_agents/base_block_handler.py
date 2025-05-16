@@ -188,30 +188,69 @@ class BaseBlockHandler(ABC):
             block_type = block_data.get("block_type", "general")
             return self.handle_greeting(user_message, block_type)
         
-        # Check response type
+        # Check response type - "ok", "yes", "sure", etc. are all affirmative
         response_type = self._analyze_user_response(user_message)
         
         # Find the current step based on flow status
         current_step = self._get_current_step(flow_status)
         
         if not current_step:
-            return {"suggestion": "Is there anything else you'd like to explore about this?"}
+            return {"suggestion": "Great! We've covered all the main aspects. Is there anything specific you'd like to explore further about this?"}
             
         if response_type == "affirmative":
-            # Generate the requested content and follow-up suggestion in one LLM call
+            # Generate the requested content
             result = self._generate_content_with_followup(current_step, user_message, flow_status, history)
-            
-            # Extract content and suggestion
-            content = result.get("content", "")
-            suggestion = result.get("suggestion", "What else would you like to explore?")
             
             # Update flow status
             updated_flow_status = flow_status.copy()
             updated_flow_status[current_step] = True
             
+            # Get next step
+            next_step = self._get_next_step(updated_flow_status)
+            
+            # Create more natural follow-up questions based on next step
+            follow_ups = {
+                "title": "Would you like to create a brief abstract that explains what this is about?",
+                "abstract": "Now that we have an abstract, should we identify who the key stakeholders might be?",
+                "stakeholders": "Should we add some tags or keywords to help categorize this?",
+                "tags": "Let's think about any assumptions we're making. Would you like to explore those?",
+                "assumptions": "Are there any constraints or limitations we should consider?",
+                "constraints": "Would you like to identify any potential risks and how to address them?",
+                "risks": "Would you like to explore different aspects and implications of this idea?",
+                "aspects_implications": "Should we consider what kind of impact this might have?",
+                "impact": "Would you like to explore how this connects to other ideas or fields?",
+                "connections": "Should we categorize this concept in different ways?",
+                "classifications": "Would you like to look at this from different thinking perspectives?",
+                "think_models": "We've covered the main points! Any other aspects you'd like to explore?"
+            }
+            
+            if next_step:
+                suggestion = follow_ups.get(next_step, f"Would you like to look at the {next_step.replace('_', ' ')} next?")
+            else:
+                suggestion = "That covers all the main points! Is there anything specific you'd like to explore further?"
+            
+            # Prepare response with additional formatting for clarity
+            if current_step == "title":
+                formatted_content = f"Title: {result}"
+            elif current_step == "abstract":
+                formatted_content = f"Abstract:\n{result}"
+            elif isinstance(result, list):
+                # For list results, format them nicely
+                formatted_content = []
+                for item in result:
+                    if isinstance(item, dict):
+                        formatted_item = {}
+                        for key, value in item.items():
+                            formatted_item[key] = value
+                        formatted_content.append(formatted_item)
+                    else:
+                        formatted_content.append(item)
+            else:
+                formatted_content = result
+            
             # Prepare response
             response = {
-                current_step: content,
+                current_step: formatted_content,
                 "suggestion": suggestion,
                 "updated_flow_status": updated_flow_status
             }
@@ -226,8 +265,24 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
-            # Generate a dynamic follow-up question about the next step
-            suggestion = self._generate_dynamic_followup(next_step, user_message, history)
+            follow_ups = {
+                "title": "No problem. Would you like to create a brief abstract instead?",
+                "abstract": "Sure, let's skip that. Would you like to identify key stakeholders instead?",
+                "stakeholders": "No problem. Would you prefer to add some tags or keywords?",
+                "assumptions": "That's fine. Would you like to consider constraints or limitations instead?",
+                "constraints": "OK, let's skip that. Should we look at potential risks instead?",
+                "risks": "No problem. Would you like to explore different aspects and implications?",
+                "aspects_implications": "Sure. Would you prefer to consider what kind of impact this might have?",
+                "impact": "That's fine. Should we explore how this connects to other ideas?",
+                "connections": "No problem. Would you like to categorize this concept in different ways?",
+                "classifications": "OK. Would you prefer to look at this from different thinking perspectives?",
+                "think_models": "No problem. Is there anything specific you'd like to focus on instead?"
+            }
+            
+            if next_step:
+                suggestion = follow_ups.get(next_step, f"Would you like to look at {next_step.replace('_', ' ')} instead?")
+            else:
+                suggestion = "No problem. What would you like to focus on instead?"
             
             response = {
                 "suggestion": suggestion,
@@ -255,7 +310,7 @@ class BaseBlockHandler(ABC):
             return {
                 "suggestion": response
             }
-    
+
     def _analyze_user_response(self, message):
         """
         Analyze the user's response to determine their intent
@@ -271,7 +326,8 @@ class BaseBlockHandler(ABC):
         # Affirmative responses
         affirmative_phrases = [
             "yes", "yeah", "yep", "sure", "ok", "okay", "proceed", 
-            "let's do it", "go ahead", "continue", "generate", "please do"
+            "let's do it", "go ahead", "continue", "generate", "please do",
+            "sounds good", "good", "great", "perfect", "do it"
         ]
         
         # Negative responses
@@ -292,9 +348,13 @@ class BaseBlockHandler(ABC):
             "what does", "how do", "?", "what are", "explain"
         ]
         
+        # Check for exact matches (for short responses like "ok")
+        if message in ["ok", "okay", "yes", "yeah", "sure", "good", "great"]:
+            return "affirmative"
+        
         # Check for affirmative responses
         for phrase in affirmative_phrases:
-            if phrase in message:
+            if phrase in message.split():
                 return "affirmative"
                 
         # Check for skip requests
@@ -609,6 +669,91 @@ class BaseBlockHandler(ABC):
                         content[step] = result[step]
         
         return content
+    
+    def _get_task_description(self, step, initial_input, previous_content, user_message, history):
+        """Generate a task description for a specific step"""
+        # Base context with initial input
+        context = f"Topic/idea: \"{initial_input}\"\n\n"
+        
+        # Add recent conversation history (limit to last 5 messages for context)
+        context += "Recent conversation:\n"
+        context += self._format_history_for_prompt(history) + "\n\n"
+        
+        # Add previously generated content for context
+        if previous_content:
+            context += "Previously developed content:\n"
+            for prev_step, content in previous_content.items():
+                if isinstance(content, dict):
+                    # For JSON content, add a summary instead of raw JSON
+                    summary = f"({len(content)} items)"
+                    context += f"{prev_step}: {summary}\n"
+                else:
+                    context += f"{prev_step}: {content}\n"
+        
+        # Step-specific instructions in more conversational language
+        instructions = {
+            "title": """Create a short, memorable title (5-10 words) that captures the essence of this concept.
+            Make it specific and clear. Don't use generic phrases.
+            Return just the title itself, nothing else.""",
+            
+            "abstract": """Write a brief summary (150-200 words) that explains what this concept is about.
+            Cover what it is, why it matters, and who it's for.
+            Use clear language a general audience would understand.
+            Return just the summary text.""",
+            
+            "stakeholders": """Identify 3-5 key people or groups who would care about this concept.
+            For each, briefly explain why they would care.
+            Format as a JSON array of objects with 'stakeholder' and 'interest' keys.""",
+            
+            "tags": """Suggest 3-6 keywords or phrases that describe this concept.
+            Choose words that would help categorize or find this concept.
+            Format as a JSON array of strings.""",
+            
+            "assumptions": """Identify 3-5 things we're taking for granted for this concept to work.
+            These might not be explicitly stated but are necessary for success.
+            Format as a JSON array of strings.""",
+            
+            "constraints": """Identify 3-5 limitations or restrictions that might affect this concept.
+            These could be technical, financial, legal, ethical, or practical considerations.
+            Format as a JSON array of strings.""",
+            
+            "risks": """Identify 3-5 potential problems or challenges for this concept.
+            For each, suggest a possible way to address or mitigate the risk.
+            Format as a JSON array of objects with 'risk' and 'mitigation' keys.""",
+            
+            "aspects_implications": """Explore 3-5 different angles or dimensions of this concept.
+            For each, describe what it might mean or lead to.
+            Format as a JSON object with aspect names as keys and implications as values.""",
+            
+            "impact": """Consider 3-5 areas where this concept could make a difference.
+            Rate each area from 1-10 for how significant the impact might be.
+            Format as a JSON array of objects with 'dimension' and 'rating' keys.""",
+            
+            "connections": """Identify 3-5 ways this concept connects to other ideas or fields.
+            Explain how they relate to each other.
+            Format as a JSON array of objects with 'connection' and 'relationship' keys.""",
+            
+            "classifications": """Categorize this concept in 2-3 different ways.
+            This might include type of innovation, complexity level, or development stage.
+            Format as a JSON object with category names as keys and classification values.""",
+            
+            "think_models": """Apply 3-5 different thinking approaches to this concept.
+            Examples: SWOT analysis, First Principles, Six Thinking Hats, etc.
+            For each approach, provide a brief insight.
+            Format as a JSON object with model names as keys and insights as values."""
+        }
+        
+        task_description = f"""
+        {context}
+        
+        User's message: "{user_message}"
+        
+        Your task: {instructions.get(step, f"Generate content for {step}")}
+        
+        Remember: The content should feel natural and helpful, not like a rigid template.
+        """
+        
+        return task_description
     
     def _generate_content_with_followup(self, step, user_message, flow_status, history):
         """

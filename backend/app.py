@@ -154,7 +154,8 @@ def analyze_general_chat():
                 "block_type": block_type,
                 "confidence": confidence,
                 "response": {
-                    "suggestion": greeting_message
+                    "suggestion": greeting_message,
+                    "classification_message": f"Great! I've identified this as a {block_type} block. Let's explore it further."
                 }
             })
         else:
@@ -172,15 +173,22 @@ def analyze_general_chat():
                 "updated_at": datetime.utcnow()
             })
             
+            # Create a classification message
+            classification_message = f"Great! I've identified this as a {block_type} type. Would you like to develop it further?"
+            
             return jsonify({
                 "block_id": block_id,
                 "block_type": block_type,
                 "confidence": confidence,
-                "response": response
+                "response": {
+                    "suggestion": suggestion,
+                    "classification_message": classification_message
+                }
             })
     else:
         return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
-
+    
+    
 @app.route('/api/analysis_of_block', methods=['POST'])
 def analyze_existing_block():
     """

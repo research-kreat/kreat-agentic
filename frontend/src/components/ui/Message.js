@@ -27,6 +27,27 @@ export default function Message({ message, isLast }) {
       '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">$1</a>'
     );
     
+    // Format JSON arrays and objects for better readability
+    if (content.includes('[') && content.includes(']')) {
+      try {
+        const jsonArray = JSON.parse(content);
+        if (Array.isArray(jsonArray)) {
+          let htmlList = '<ul class="list-disc ml-5 my-2">';
+          jsonArray.forEach(item => {
+            if (typeof item === 'object') {
+              htmlList += `<li class="mb-1">${JSON.stringify(item, null, 2)}</li>`;
+            } else {
+              htmlList += `<li class="mb-1">${item}</li>`;
+            }
+          });
+          htmlList += '</ul>';
+          return htmlList;
+        }
+      } catch (e) {
+        // Not valid JSON, continue with normal formatting
+      }
+    }
+    
     // Convert markdown-style code blocks to HTML
     formattedContent = formattedContent.replace(
       /```([^`]+)```/g,
@@ -39,8 +60,25 @@ export default function Message({ message, isLast }) {
       '<code class="bg-gray-100 px-1 rounded">$1</code>'
     );
     
+    // Format titles specially
+    if (content.startsWith('Title: ')) {
+      formattedContent = formattedContent.replace(
+        /Title: (.*)/,
+        '<div class="font-bold text-lg mb-2">$1</div>'
+      );
+    }
+    
+    // Format abstracts specially
+    if (content.startsWith('Abstract:')) {
+      formattedContent = formattedContent.replace(
+        /Abstract:/,
+        '<div class="font-bold mb-1">Abstract:</div>'
+      );
+    }
+    
     return formattedContent;
   };
+  
   
   // Format timestamp
   const formattedTime = timestamp ? new Date(timestamp).toLocaleTimeString([], { 
