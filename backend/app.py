@@ -69,7 +69,7 @@ def analyze_general_chat():
     user_input = data.get('message', '')
     
     # Classify the user input
-    block_type, confidence = classify_user_input(user_input)
+    block_type, confidence, is_greeting = classify_user_input(user_input)
     
     # Create a new block ID
     block_id = str(uuid.uuid4())
@@ -129,23 +129,47 @@ def analyze_general_chat():
         # Get initial response
         response = handler.initialize_block(user_input)
         
-        # Store assistant response in history
-        history_collection.insert_one({
-            "user_id": user_id,
-            "block_id": block_id,
-            "role": "assistant",
-            "message": response["suggestion"],
-            "result": response,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        })
-        
-        return jsonify({
-            "block_id": block_id,
-            "block_type": block_type,
-            "confidence": confidence,
-            "response": response
-        })
+        # If it's identified as a greeting, we need to handle it differently
+        if response.get("identified_as") == "greeting":
+            greeting_message = response.get("greeting_response")
+            
+            # Store assistant response in history
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": greeting_message,
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "confidence": confidence,
+                "response": {
+                    "suggestion": greeting_message
+                }
+            })
+        else:
+            # Store assistant response in history for non-greeting messages
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": response["suggestion"],
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "confidence": confidence,
+                "response": response
+            })
     else:
         return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
 
@@ -190,35 +214,58 @@ def analyze_existing_block():
         # Process the message
         response = handler.process_message(user_input, flow_data["flow_status"])
         
-        # Update flow status if needed
-        if "updated_flow_status" in response:
-            flow_collection.update_one(
-                {"block_id": block_id, "user_id": user_id},
-                {"$set": {
-                    "flow_status": response["updated_flow_status"],
-                    "updated_at": datetime.utcnow()
-                }}
-            )
+        # If it's identified as a greeting, handle it appropriately
+        if response.get("identified_as") == "greeting":
+            greeting_message = response.get("greeting_response")
             
-            # Remove this from response as it's internal
-            del response["updated_flow_status"]
-        
-        # Store assistant response in history
-        history_collection.insert_one({
-            "user_id": user_id,
-            "block_id": block_id,
-            "role": "assistant",
-            "message": response.get("suggestion", ""),
-            "result": response,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        })
-        
-        return jsonify({
-            "block_id": block_id,
-            "block_type": block_type,
-            "response": response
-        })
+            # Store assistant response in history
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": greeting_message,
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "response": {
+                    "suggestion": greeting_message
+                }
+            })
+        else:
+            # Update flow status if needed
+            if "updated_flow_status" in response:
+                flow_collection.update_one(
+                    {"block_id": block_id, "user_id": user_id},
+                    {"$set": {
+                        "flow_status": response["updated_flow_status"],
+                        "updated_at": datetime.utcnow()
+                    }}
+                )
+                
+                # Remove this from response as it's internal
+                del response["updated_flow_status"]
+            
+            # Store assistant response in history
+            history_collection.insert_one({
+                "user_id": user_id,
+                "block_id": block_id,
+                "role": "assistant",
+                "message": response.get("suggestion", ""),
+                "result": response,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            })
+            
+            return jsonify({
+                "block_id": block_id,
+                "block_type": block_type,
+                "response": response
+            })
     else:
         return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
 
@@ -408,10 +455,16 @@ def create_new_block():
         "updated_at": datetime.utcnow()
     })
     
-    # Add welcome message
+    # Add welcome message based on block type
     welcome_messages = {
         "idea": "Welcome to Idea Development. I can help you craft innovative concepts and solutions. What would you like to explore today?",
         "problem": "Welcome to Problem Definition. I can help you articulate and analyze challenges. What problem would you like to address?",
+        "possibility": "Welcome to Possibility Explorer. I can help you discover potential solutions and approaches. What would you like to explore?",
+        "moonshot": "Welcome to Moonshot Ideation. I can help you develop ambitious, transformative ideas. What big challenge would you like to tackle?",
+        "needs": "Welcome to Needs Analysis. I can help you identify and understand requirements and goals. What needs would you like to analyze?",
+        "opportunity": "Welcome to Opportunity Assessment. I can help you discover and evaluate potential markets or directions. What opportunity interests you?",
+        "concept": "Welcome to Concept Development. I can help you structure and refine solutions. What concept would you like to develop?",
+        "outcome": "Welcome to Outcome Evaluation. I can help you measure and analyze results. What outcomes would you like to evaluate?",
         "general": "Welcome to KRAFT. I can assist with creative problem-solving and innovation. How can I help you today?"
     }
     
@@ -434,4 +487,4 @@ def create_new_block():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5001)

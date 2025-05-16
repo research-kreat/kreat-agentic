@@ -27,7 +27,7 @@ class BaseBlockHandler(ABC):
         
         # Initialize LLM
         self.llm = LLM(
-            model="azure/gpt-4o-mini",  # Use appropriate model
+            model="azure/gpt-4o-mini",
             temperature=0.7
         )
         
@@ -46,6 +46,108 @@ class BaseBlockHandler(ABC):
             "classifications",
             "think_models"
         ]
+    
+    def is_greeting(self, user_input):
+        """
+        Check if the user input is a greeting
+        
+        Args:
+            user_input: User's message
+            
+        Returns:
+            bool: True if the input is a greeting, False otherwise
+        """
+        greeting_phrases = [
+            "hi", "hello", "hey", "greetings", "good morning", "good afternoon", 
+            "good evening", "howdy", "what's up", "how are you", "nice to meet you",
+            "how's it going", "sup", "yo", "hiya", "hi there", "hello there",
+            "hey there", "welcome", "good day", "how do you do", "how's everything"
+        ]
+        
+        # Clean and normalize input for comparison
+        clean_input = user_input.lower().strip()
+        
+        # Check if the input starts with any greeting phrase or is a greeting phrase
+        for phrase in greeting_phrases:
+            if clean_input.startswith(phrase) or clean_input == phrase:
+                return True
+                
+        return False
+    
+    def handle_greeting(self, user_input, block_type):
+        """
+        Handle greeting from user
+        
+        Args:
+            user_input: User's greeting message
+            block_type: Type of the block
+            
+        Returns:
+            dict: Response with greeting and prompt for ideas
+        """
+        # Create a specialized agent for greeting responses
+        agent = Agent(
+            role="Conversation Guide",
+            goal="Engage users in a friendly conversation about innovation",
+            backstory="You are a helpful assistant specialized in the KRAFT framework. You greet users warmly and guide them to share their ideas or problems.",
+            verbose=True,
+            llm=self.llm
+        )
+        
+        # Block-specific prompts
+        prompts = {
+            "idea": "Share an innovative idea you'd like to develop",
+            "problem": "Describe a problem you'd like to solve",
+            "possibility": "Share a possibility you'd like to explore",
+            "moonshot": "Share an ambitious, transformative idea",
+            "needs": "Describe some needs you'd like to address",
+            "opportunity": "Share an opportunity you'd like to explore",
+            "concept": "Describe a concept you'd like to develop",
+            "outcome": "Share an outcome you'd like to achieve",
+            "general": "Share what's on your mind and I'll help classify it"
+        }
+        
+        # Create task for generating a greeting response
+        task = Task(
+            description=f"""
+            The user has greeted you with: "{user_input}"
+            
+            You're working with the {block_type} block in the KRAFT framework.
+            
+            Respond with a friendly greeting that:
+            1. Acknowledges their greeting
+            2. Briefly explains what this {block_type} block can help them with
+            3. Encourages them to {prompts.get(block_type, "share their thoughts")}
+            
+            Keep your response conversational, friendly, and concise (3-4 sentences).
+            """,
+            agent=agent,
+            expected_output="A friendly greeting response"
+        )
+        
+        # Execute the task
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=True
+        )
+        
+        try:
+            result = crew.kickoff()
+            return {
+                "identified_as": "greeting",
+                "greeting_response": result.raw.strip(),
+                "requires_classification": False
+            }
+        except Exception as e:
+            logger.error(f"Error generating greeting response: {str(e)}")
+            default_greeting = f"Hello! I'm your {block_type.capitalize()} assistant. How can I help you today?"
+            return {
+                "identified_as": "greeting",
+                "greeting_response": default_greeting,
+                "requires_classification": False
+            }
     
     @abstractmethod
     def initialize_block(self, user_input):
@@ -71,6 +173,12 @@ class BaseBlockHandler(ABC):
         Returns:
             dict: Response with results and next step suggestion
         """
+        # Check if the message is a greeting
+        if self.is_greeting(user_message):
+            block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
+            block_type = block_data.get("block_type", "general")
+            return self.handle_greeting(user_message, block_type)
+        
         # Check response type
         response_type = self._analyze_user_response(user_message)
         
@@ -204,6 +312,7 @@ class BaseBlockHandler(ABC):
         # If none of the above, classify as "other"
         return "other"
     
+    # Rest of the methods remain the same
     def _handle_process_question(self, user_message, current_step):
         """
         Handle questions about the process

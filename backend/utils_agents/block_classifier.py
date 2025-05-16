@@ -6,11 +6,33 @@ logger = logging.getLogger(__name__)
 
 def classify_user_input(user_input):
     """
-    Classifies the user input into one of the eight block types.
+    Classifies the user input into one of the eight block types or identifies it as a greeting.
     
     Returns:
-        tuple: (block_type, confidence_score)
+        tuple: (block_type, confidence_score, is_greeting)
     """
+    # First check if it's a greeting using a simple rule-based approach
+    greeting_phrases = [
+        "hi", "hello", "hey", "greetings", "good morning", "good afternoon", 
+        "good evening", "howdy", "what's up", "how are you", "nice to meet you",
+        "how's it going", "sup", "yo", "hiya", "hi there", "hello there",
+        "hey there", "welcome", "good day", "how do you do"
+    ]
+    
+    # Clean and normalize input for comparison
+    clean_input = user_input.lower().strip()
+    
+    # Check if the input is just a simple greeting
+    is_greeting = False
+    for phrase in greeting_phrases:
+        if clean_input.startswith(phrase) or clean_input == phrase:
+            is_greeting = True
+            break
+    
+    # If it's a simple greeting with no substantive content, return general type with low confidence
+    if is_greeting and len(clean_input.split()) <= 5:
+        return "general", 5, True
+    
     try:
         # Initialize LLM
         llm = LLM(
@@ -46,10 +68,14 @@ def classify_user_input(user_input):
             7. "concept" - Structured solutions or frameworks
             8. "outcome" - Results, consequences, or end states
             
+            IMPORTANT: If the input is just a greeting (like "hello", "hi", "hey there", etc.) with no substantial content,
+            identify this as a greeting and return appropriate values.
+            
             Your output must be EXACTLY in this JSON format:
             {{
-                "block_type": "one of the eight types listed above",
+                "block_type": "one of the eight types listed above, or 'general' if it's just a greeting",
                 "confidence": "a number between 1-10 representing your confidence",
+                "is_greeting": "true or false - whether this is primarily just a greeting"
             }}
             """,
             agent=classification_agent,
@@ -79,15 +105,16 @@ def classify_user_input(user_input):
                 result_data = json.loads(json_str)
                 block_type = result_data.get("block_type", "problem")  # Default to problem if parsing fails
                 confidence = int(result_data.get("confidence", 7))  # Default confidence
+                is_greeting = result_data.get("is_greeting", "false").lower() == "true"
                 
-                return block_type, confidence
+                return block_type, confidence, is_greeting
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse classification result: {json_str}")
-                return "problem", 5  # Default with low confidence
+                return "problem", 5, False  # Default with low confidence
         else:
             logger.error("No JSON found in classification result")
-            return "problem", 5  # Default with low confidence
+            return "problem", 5, False  # Default with low confidence
             
     except Exception as e:
         logger.error(f"Error in classification: {str(e)}")
-        return "problem", 5  # Default with low confidence on any error
+        return "problem", 5, False  # Default with low confidence on any error

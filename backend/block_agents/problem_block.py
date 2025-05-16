@@ -19,6 +19,10 @@ class ProblemBlockHandler(BaseBlockHandler):
         Returns:
             dict: Response with classification and suggestion for next step
         """
+        # Check if the input is a greeting
+        if self.is_greeting(user_input):
+            return self.handle_greeting(user_input, "problem")
+        
         # Create specialized agent for problem initialization
         problem_agent = Agent(
             role="Problem Framework Specialist",
