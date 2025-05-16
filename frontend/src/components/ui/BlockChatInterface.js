@@ -26,6 +26,7 @@ export default function BlockChatInterface({ blockType = 'general' }) {
   const clearMessages = useChatStore(state => state.clearMessages);
   const initializeUser = useChatStore(state => state.initializeUser);
   const setBlockInfo = useChatStore(state => state.setBlockInfo);
+  const setMessageHistory = useChatStore(state => state.setMessageHistory);
 
   // Initialize user if not already set
   useEffect(() => {
@@ -38,6 +39,78 @@ export default function BlockChatInterface({ blockType = 'general' }) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messageHistory, isTyping]);
+
+  useEffect(() => {
+    if (currentBlockId && userId) {
+      // Set loading state
+      setIsTyping(true);
+      
+      // Fetch messages for the current block
+      const fetchMessages = async () => {
+        try {
+          const data = await api.getBlock({ blockId: currentBlockId, userId });
+          
+          // Check if we received valid messages
+          if (data.messages && Array.isArray(data.messages)) {
+            // If there are no messages, add a welcome message
+            if (data.messages.length === 0) {
+              setMessageHistory([
+                {
+                  role: 'system',
+                  content: getWelcomeMessage(blockType),
+                  timestamp: new Date().toISOString()
+                }
+              ]);
+            } else {
+              // Format messages to match expected structure
+              const formattedMessages = data.messages.map(msg => ({
+                role: msg.role,
+                content: msg.message,
+                timestamp: msg.created_at || new Date().toISOString(),
+                // Include fullResponse if it exists in the result
+                fullResponse: msg.result || null
+              }));
+              
+              setMessageHistory(formattedMessages);
+            }
+            
+            // Update block info
+            setBlockInfo({
+              ...blockInfo,
+              messageCount: data.messages.length,
+              type: data.block.type || blockType,
+              blockId: data.block.block_id,
+              created: data.block.created_at
+            });
+            
+            addLog({
+              type: 'info',
+              message: 'Loaded conversation history'
+            });
+          }
+        } catch (error) {
+          console.error('Error loading messages:', error);
+          addLog({
+            type: 'error',
+            message: `Error loading messages: ${error.message}`
+          });
+          
+          // Add a welcome message as fallback
+          setMessageHistory([
+            {
+              role: 'system',
+              content: getWelcomeMessage(blockType),
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        } finally {
+          setIsTyping(false);
+        }
+      };
+      
+      fetchMessages();
+    }
+  }, [currentBlockId, userId, blockType]);
 
   // Handle sending a message
   const handleSendMessage = async (content) => {

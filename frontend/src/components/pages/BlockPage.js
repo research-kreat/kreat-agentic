@@ -70,8 +70,27 @@ export default function BlockPage({ blockType = 'general', blockId = null }) {
         blockId: data.block.block_id
       });
       
-      // Load messages
-      setMessageHistory(data.messages || []);
+      // Load messages with proper formatting for display
+      const formattedMessages = data.messages.map(msg => ({
+        role: msg.role,
+        content: msg.message,
+        timestamp: msg.created_at || new Date().toISOString(),
+        // Include fullResponse if it exists in the result field
+        fullResponse: msg.result || null
+      }));
+      
+      setMessageHistory(formattedMessages);
+      
+      // If no messages exist, add a welcome message
+      if (formattedMessages.length === 0) {
+        setMessageHistory([
+          {
+            role: 'system',
+            content: getWelcomeMessage(data.block.type || blockType),
+            timestamp: new Date().toISOString()
+          }
+        ]);
+      }
       
       addLog({
         type: 'system',

@@ -27,7 +27,7 @@ export const useChatStore = create(
       logs: [
         {
           type: 'system',
-          message: 'Ready to assist with KRAFT framework',
+          message: 'Ready to assist with KRAFT',
           timestamp: new Date().toLocaleTimeString()
         }
       ],
@@ -146,7 +146,7 @@ export const useChatStore = create(
         logs: [
           {
             type: 'system',
-            message: 'Ready to assist with KRAFT framework',
+            message: 'Ready to assist with KRAFT',
             timestamp: new Date().toLocaleTimeString()
           }
         ]

@@ -63,6 +63,15 @@ class BaseBlockHandler(ABC):
             "how's it going", "sup", "yo", "hiya", "hi there", "hello there",
             "hey there", "welcome", "good day", "how do you do", "how's everything"
         ]
+
+        """
+        UPDATE THE CODE WITH THE FOLLOWING CHANGES:
+        1. NEED TO BE CONVERSATIONAL INSTED OF GIVING FOLLOW UP MESSAGES HARDCODED I WANT TO GENERATE THEM ALONG WITH THE LLM MESSAGE TO THE USER RESPONSE DURING THE NORMAL SUGGESTION GENERATION, I DONT NEED ANY HARDCOARDED MESSAGES 
+        2. WRITE PROMPTS IN SUCH A WAY THAT TO AVOID HALLUCATION AND GENERATE THINGS IN A CONVERSATIONAL WAY INSTED OF DISPLYING ANY HARDCOARDED MESSAGES
+        3. MAKE THE CODE FLEXIBLE TO HANDLE ANY KIND OF RESPONSE SHOULD ANALZYSE BEFORE GENERATING THE RESPONSE
+        4. MAKE THE PROPER LOADING OF THE CHAT MESSAGE SINCE THEY ARE NOT LOADING ONCE THE PAGE IS REFRESHED OR LOADED AGAIN IT WILL JUST SHOW EMPTY BUBBLES, I WANT YOU TO MAKE SURE TO MAP THE CONVERSRATION HISTORY
+        5. DONT CHANGE ANY OTHER THING OR DONT REMOVE ANYTHING FROM THE CODE JUST MAKE SURE TO KEEP THE THINGS IN THE SAME WAY AS THEY ARE AND JUST ADD THE THINGS THAT I HAVE MENTIONED ABOVE
+        """
         
         # Clean and normalize input for comparison
         clean_input = user_input.lower().strip()
@@ -434,7 +443,7 @@ class BaseBlockHandler(ABC):
     
     def _generate_contextual_response(self, user_message, current_step, flow_status, history):
         """
-        Generate a contextual response for an unstructured user message
+        Generate a contextual response for an unstructured user message that's more conversational
         
         Args:
             user_message: User's message
@@ -448,24 +457,6 @@ class BaseBlockHandler(ABC):
         # Get the initial input
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
-        
-        # Step descriptions in conversational language
-        step_descriptions = {
-            "title": "a clear name for this",
-            "abstract": "the core concept",
-            "stakeholders": "who would be involved",
-            "tags": "key themes or categories",
-            "assumptions": "underlying assumptions",
-            "constraints": "potential limitations",
-            "risks": "possible risks",
-            "aspects_implications": "different aspects and implications",
-            "impact": "potential impact",
-            "connections": "connections to other ideas",
-            "classifications": "how to categorize this",
-            "think_models": "different perspectives"
-        }
-        
-        current_step_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
         
         # Create an agent for contextual responses
         agent = Agent(
@@ -486,13 +477,10 @@ class BaseBlockHandler(ABC):
             
             User's latest message: "{user_message}"
             
-            We're currently exploring {current_step_desc}.
-            
             Create a helpful response that:
             - Directly addresses what they've just said
-            - Feels like a natural conversation, not a structured exercise
-            - Gently connects to {current_step_desc} if relevant
-            - Ends with a natural question to continue the conversation
+            - Feels like a natural conversation between two people
+            - Includes an appropriate follow-up question based on their message
             - Is brief (2-3 sentences)
             
             IMPORTANT:
@@ -500,6 +488,9 @@ class BaseBlockHandler(ABC):
             - Don't mention any "process", "framework", or "steps"
             - Don't use bullet points, formatting or markdown
             - Keep the tone casual but professional
+            - Don't use pre-defined responses, make it sound natural and unique
+            - Don't mention that you're an AI or that you're generating a response
+            - Just respond as a human conversation partner would
             """,
             agent=agent,
             expected_output="A conversational response"
@@ -518,8 +509,9 @@ class BaseBlockHandler(ABC):
             return result.raw.strip()
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
-            return f"I see what you mean. What are your thoughts on {current_step_desc}?"
-    
+            # Even our fallback should be conversational
+            return f"I see what you mean. What else is on your mind about this?"
+
     def _get_current_step(self, flow_status):
         """Get the current step based on flow status"""
         for step in self.flow_steps:

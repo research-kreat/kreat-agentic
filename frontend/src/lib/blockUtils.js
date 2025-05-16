@@ -15,10 +15,10 @@ export const getWelcomeMessage = (blockType) => {
       opportunity: "Welcome to Opportunity Assessment. I can help you discover and evaluate potential markets or directions. What opportunity interests you?",
       concept: "Welcome to Concept Development. I can help you structure and refine solutions. What concept would you like to develop?",
       outcome: "Welcome to Outcome Evaluation. I can help you measure and analyze results. What outcomes would you like to evaluate?",
-      general: "Welcome to the KRAFT framework. I can help guide you through creative problem-solving and innovation. How can I assist you today?"
+      general: "Welcome to the KRAFT. I can help guide you through creative problem-solving and innovation. How can I assist you today?"
     };
     
-    return messages[blockType] || "Welcome to the KRAFT framework. How can I assist you today?";
+    return messages[blockType] || "Welcome to the KRAFT. How can I assist you today?";
   };
   
   /**

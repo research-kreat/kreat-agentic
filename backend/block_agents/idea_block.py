@@ -33,28 +33,32 @@ class IdeaBlockHandler(BaseBlockHandler):
             llm=self.llm
         )
         
-        # Create task for initial analysis
         analysis_task = Task(
             description=f"""
             The person has shared this idea:
             
             "{user_input}"
             
-            First, understand what makes this an interesting idea and why it might be valuable.
+            Your goal is to provide a natural, conversational response that:
+            1. Shows genuine interest in their idea
+            2. Acknowledges something specific from what they shared
+            3. Asks a thoughtful follow-up question to explore their idea further
             
-            Then, respond with 2-3 sentences that:
-            1. Acknowledge their idea positively
-            2. Highlight a potential value or benefit their idea offers
-            3. End with a natural question about what they want to call this idea
-            
-            Keep your response conversational and natural - avoid phrases like "Would you like to...", "The next step is...", or "Let's generate a..."
+            IMPORTANT CONSTRAINTS:
+            - Keep your response to 2-3 sentences maximum
+            - Write in a casual, conversational tone as if talking to a colleague
+            - Don't mention frameworks, processes, or structured approaches
+            - Don't use phrases like "would you like to" or "let's proceed to" 
+            - Only mention information directly related to what they've shared
+            - Don't make any claims that aren't directly supported by their message
+            - If you're unsure about details, ask questions rather than making assumptions
             
             Don't use markdown, bullet points, or structured formatting.
             """,
             agent=idea_agent,
-            expected_output="Brief analysis and natural follow-up"
+            expected_output="Brief, conversational response to their idea"
         )
-        
+
         # Execute the analysis
         crew = Crew(
             agents=[idea_agent],
