@@ -225,8 +225,8 @@ export default function Message({ message, isLast }) {
     >
       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
         role === 'user' 
-          ? 'bg-primary text-white' 
-          : 'bg-secondary text-white'
+          ? 'bg-primary text-black' 
+          : 'bg-secondary text-black'
       }`}>
         <i className={`fas ${role === 'user' ? 'fa-user' : 'fa-robot'}`}></i>
       </div>
@@ -235,7 +235,7 @@ export default function Message({ message, isLast }) {
         <div 
           className={`p-4 rounded-2xl shadow-sm ${
             role === 'user' 
-              ? 'bg-primary text-white rounded-br-none' 
+              ? 'bg-primary text-black rounded-br-none' 
               : 'bg-white text-gray-800 rounded-bl-none'
           }`}
           onClick={role === 'assistant' && fullResponse ? toggleDetails : undefined}
@@ -277,7 +277,7 @@ export default function Message({ message, isLast }) {
                 {showDetails ? 'Hide details' : 'Show details'}
               </span>
             )}
-            <span className={role === 'user' ? 'text-white' : 'text-gray-500'}>{formattedTime}</span>
+            <span className={role === 'user' ? 'text-black' : 'text-gray-500'}>{formattedTime}</span>
           </div>
         </div>
         

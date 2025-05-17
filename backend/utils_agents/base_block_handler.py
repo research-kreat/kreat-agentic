@@ -34,6 +34,7 @@ class BaseBlockHandler(ABC):
         )
         
         # Standard flow steps for all block types (following chat-flow.txt)
+        # Ensure this order is strictly followed
         self.flow_steps = [
             "title",
             "abstract",
@@ -231,7 +232,7 @@ class BaseBlockHandler(ABC):
             # Prepare response with formatted content
             content = result if isinstance(result, dict) else self._format_step_content(current_step, result)
             
-            # Prepare response
+            # Prepare response with suggestion included in JSON format
             response = {
                 current_step: content,
                 "suggestion": suggestion,
@@ -245,7 +246,7 @@ class BaseBlockHandler(ABC):
     
     def _generate_next_step_suggestion(self, current_step, next_step):
         """
-        Generate a dynamic suggestion for the next step using LLM
+        Generate a dynamic suggestion for the next step - simplified for JSON response
         
         Args:
             current_step: The step that was just completed
@@ -258,84 +259,24 @@ class BaseBlockHandler(ABC):
         if not next_step:
             return "Great! We've completed all the steps. What would you like to explore further?"
         
-        # Get block data to provide context
-        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
-        initial_input = block_data.get("initial_input", "")
-        block_type = block_data.get("block_type", "general")
-        
-        # Create agent for suggestion generation
-        agent = Agent(
-            role="Creative Process Guide",
-            goal="Generate natural, conversational transitions between creative thinking steps",
-            backstory="You help guide creative thinking with natural language transitions that feel like a conversation, not instructions.",
-            verbose=True,
-            llm=self.llm
-        )
-        
-        # Basic descriptions for context only
-        step_descriptions = {
-            "title": "compelling title",
-            "abstract": "concise summary",
-            "stakeholders": "key people or groups involved",
-            "tags": "relevant keywords or categories",
-            "assumptions": "underlying beliefs or premises",
-            "constraints": "limitations or restrictions",
-            "risks": "potential challenges or issues",
-            "areas": "related fields or domains",
-            "impact": "key benefits and outcomes",
-            "connections": "related concepts or ideas",
-            "classifications": "ways to categorize this concept",
-            "think_models": "thinking frameworks that apply"
+        # Simple suggestion template to maintain consistency
+        step_action_prompts = {
+            "title": "generate a title",
+            "abstract": "create an abstract",
+            "stakeholders": "identify the stakeholders",
+            "tags": "add tags and categories",
+            "assumptions": "list the assumptions",
+            "constraints": "identify any constraints",
+            "risks": "what risks might exist",
+            "areas": "explore related areas",
+            "impact": "describe the potential impact",
+            "connections": "discover connections to other ideas",
+            "classifications": "classify this concept",
+            "think_models": "apply thinking models"
         }
         
-        current_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
-        next_desc = step_descriptions.get(next_step, next_step.replace("_", " "))
-        
-        # Create task for suggestion generation
-        task = Task(
-            description=f"""
-            Topic: "{initial_input}"
-            Block Type: {block_type}
-            Just completed: {current_step} ({current_desc})
-            Next step: {next_step} ({next_desc})
-            
-            Generate a natural, conversational transition to suggest moving to the next step.
-            
-            Guidelines:
-            - Be brief (1-2 sentences max)
-            - Sound natural and conversational, not like instructions
-            - Don't use phrases like "Now, let's..." or "Let's proceed to..."
-            - Don't explain what we're doing or why
-            - Don't use bullet points or numbered lists
-            - Make it feel like a natural flow of conversation
-            
-            Examples of good transitions:
-            - "What about generating a title that captures the essence of this concept?"
-            - "Maybe we should identify the key stakeholders involved?"
-            - "Shall we explore the potential impact this could have?"
-            
-            Your transition should sound like something a helpful friend would say, not like a process instruction.
-            """,
-            agent=agent,
-            expected_output="A natural transition suggestion"
-        )
-        
-        # Execute task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
-        try:
-            result = crew.kickoff()
-            return result.raw.strip()
-        except Exception as e:
-            logger.error(f"Error generating transition suggestion: {str(e)}")
-            # Fallback to a simple suggestion using the step description
-            fallback_desc = self.step_descriptions.get(next_step, next_step.replace("_", " "))
-            return f"Let's generate {fallback_desc}."
+        prompt = step_action_prompts.get(next_step, f"work on the {next_step}")
+        return f"Would you like to {prompt}?"
     
     def _is_user_confirmation(self, message):
         """
@@ -660,7 +601,7 @@ class BaseBlockHandler(ABC):
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
             return {
-                "suggestion": f"Shall we continue with {self.step_descriptions.get(current_step, current_step)}?"
+                "suggestion": f"Would you like to {self.step_descriptions.get(current_step, current_step)}?"
             }
     
     def _is_related_to_current_step(self, user_message, current_step, initial_input):
@@ -691,14 +632,15 @@ class BaseBlockHandler(ABC):
         return False
 
     def _get_current_step(self, flow_status):
-        """Get the current step based on flow status"""
+        """Get the current step based on flow status - strictly following the order"""
+        # Ensure we're following the exact order defined in self.flow_steps
         for step in self.flow_steps:
             if not flow_status.get(step, False):
                 return step
         return None
     
     def _get_next_step(self, flow_status):
-        """Get the next step after the current one"""
+        """Get the next step after the current one - strictly following the order"""
         current_step = None
         next_step = None
         

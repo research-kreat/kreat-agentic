@@ -56,7 +56,7 @@ block_handlers = {
     "general": IdeaBlockHandler  # Use IdeaBlockHandler for general chat as fallback
 }
 
-# Standard flow steps for all block types
+# Standard flow steps for all block types in the correct order
 STANDARD_FLOW_STEPS = [
     "title",
     "abstract", 
@@ -97,7 +97,7 @@ def analyze_general_chat():
     # Create a new block ID
     block_id = str(uuid.uuid4())
     
-    # Initialize flow status with standard steps
+    # Initialize flow status with standard steps in the correct order
     flow_status = {
         "user_id": user_id,
         "block_id": block_id,
@@ -275,7 +275,7 @@ def analyze_existing_block():
                 # Keep a copy before removing it from response
                 updated_flow_status = response["updated_flow_status"].copy()
                 
-                # Remove this from response as it's internal
+                # Remove this from internal flow status from response before sending to client
                 response.pop("updated_flow_status", None)
             
             # Get the suggestion for the message content
@@ -298,17 +298,32 @@ def analyze_existing_block():
                                 formatted_items.append(f"{k}: {v}")
                             response[step] = formatted_items
             
+            # Create a clean message for display
+            display_message = suggestion
+            if current_step is not None and current_step in response:
+                # If we're working with text content (title or abstract)
+                if current_step in ["title", "abstract"]:
+                    display_message = f"{response[current_step]}\n\n{suggestion}"
+                # For lists of items
+                elif isinstance(response[current_step], list):
+                    items_text = "\n".join([f"• {item}" for item in response[current_step]])
+                    display_message = f"{items_text}\n\n{suggestion}"
+                # For other data types
+                else:
+                    display_message = f"{response[current_step]}\n\n{suggestion}"
+            
             # Store assistant response in history
             history_collection.insert_one({
                 "user_id": user_id,
                 "block_id": block_id,
                 "role": "assistant",
-                "message": suggestion if current_step is None else f"{response[current_step]}\n\n{suggestion}",
+                "message": display_message,
                 "result": response,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             })
             
+            # Return a JSON-compatible response
             return jsonify({
                 "block_id": block_id,
                 "block_type": block_type,
@@ -459,7 +474,7 @@ def create_new_block():
     # Create a new block ID
     block_id = str(uuid.uuid4())
     
-    # Initialize flow status with standard steps
+    # Initialize flow status with standard steps in the correct order
     flow_status = {
         "user_id": user_id,
         "block_id": block_id,

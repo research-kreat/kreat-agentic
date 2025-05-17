@@ -42,11 +42,11 @@ class IdeaBlockHandler(BaseBlockHandler):
             
             "{user_input}"
             
-            Prepare a two-part response:
+            Prepare a two-part response in pure JSON format:
             
             PART 1: A brief classification message that acknowledges this as an idea. Just 1-2 sentences.
             
-            PART 2: A friendly message that shows excitement about the idea and invites the user to proceed with title generation. 
+            PART 2: A friendly message that shows excitement about the idea and invites the user to generate a title. 
             Make it conversational and encouraging.
             
             FORMAT:
@@ -82,7 +82,7 @@ class IdeaBlockHandler(BaseBlockHandler):
                     if "classification_message" not in result_data:
                         result_data["classification_message"] = "Great! I've identified this as an idea. Let's explore it further."
                     if "suggestion" not in result_data:
-                        result_data["suggestion"] = "It's a great idea! Would you like to proceed with generating a title for it?"
+                        result_data["suggestion"] = "Would you like to generate a title for this idea?"
                     
                     return result_data
                 except json.JSONDecodeError:
@@ -92,7 +92,7 @@ class IdeaBlockHandler(BaseBlockHandler):
             return {
                 "identified_as": "idea",
                 "classification_message": "Great! I've identified this as an idea. Let's explore it further.",
-                "suggestion": "It's a great idea! Would you like to proceed with generating a title for it?"
+                "suggestion": "Would you like to generate a title for this idea?"
             }
         except Exception as e:
             logger.error(f"Error initializing idea block: {str(e)}")
@@ -101,7 +101,7 @@ class IdeaBlockHandler(BaseBlockHandler):
             return {
                 "identified_as": "idea",
                 "classification_message": "Great! I've identified this as an idea. Let's explore it further.",
-                "suggestion": "It's a great idea! Would you like to proceed with generating a title for it?"
+                "suggestion": "Would you like to generate a title for this idea?"
             }
             
     def process_message(self, user_message, flow_status):

@@ -42,11 +42,11 @@ class ProblemBlockHandler(BaseBlockHandler):
             
             "{user_input}"
             
-            Prepare a two-part response:
+            Prepare a two-part response in pure JSON format:
             
             PART 1: A brief classification message that acknowledges this as a problem. Keep it to 1-2 sentences max.
             
-            PART 2: A simple question asking if they'd like to generate a title.
+            PART 2: A simple suggestion asking if they'd like to generate a title for this problem.
             
             FORMAT:
             {{
