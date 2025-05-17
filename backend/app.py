@@ -56,6 +56,22 @@ block_handlers = {
     "general": IdeaBlockHandler  # Use IdeaBlockHandler for general chat as fallback
 }
 
+# Standard flow steps for all block types
+STANDARD_FLOW_STEPS = [
+    "title",
+    "abstract", 
+    "stakeholders",
+    "tags",
+    "assumptions",
+    "constraints",
+    "risks",
+    "areas",
+    "impact",
+    "connections",
+    "classifications",
+    "think_models"
+]
+
 @app.route('/api/analyze', methods=['POST'])
 def analyze_general_chat():
     """
@@ -71,31 +87,23 @@ def analyze_general_chat():
     user_input = data.get('message', '')
     
     # Classify the user input
-    block_type, confidence, is_greeting = classify_user_input(user_input)
+    try:
+        block_type, confidence, is_greeting, classification_message = classify_user_input(user_input)
+    except ValueError as e:
+        # Handle case where classifier returns old format (without classification_message)
+        block_type, confidence, is_greeting = classify_user_input(user_input)
+        classification_message = f"Great! I've identified this as a {block_type} type. Let's explore it further."
     
     # Create a new block ID
     block_id = str(uuid.uuid4())
     
-    # Initialize flow status
+    # Initialize flow status with standard steps
     flow_status = {
         "user_id": user_id,
         "block_id": block_id,
         "block_type": block_type,
         "initial_input": user_input,
-        "flow_status": {
-            "title": False,
-            "abstract": False,
-            "stakeholders": False,
-            "tags": False,
-            "assumptions": False,
-            "constraints": False,
-            "risks": False,
-            "aspects_implications": False,
-            "impact": False,
-            "connections": False,
-            "classifications": False,
-            "think_models": False
-        },
+        "flow_status": {step: False for step in STANDARD_FLOW_STEPS},
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
@@ -155,7 +163,7 @@ def analyze_general_chat():
                 "confidence": confidence,
                 "response": {
                     "suggestion": greeting_message,
-                    "classification_message": f"Great! I've identified this as a {block_type} block. Let's explore it further."
+                    "classification_message": classification_message
                 }
             })
         else:
@@ -173,9 +181,7 @@ def analyze_general_chat():
                 "updated_at": datetime.utcnow()
             })
             
-            # Create a classification message
-            classification_message = f"Great! I've identified this as a {block_type} type. Would you like to develop it further?"
-            
+            # Following the standard flow, first message is classification and suggestion
             return jsonify({
                 "block_id": block_id,
                 "block_type": block_type,
@@ -211,20 +217,6 @@ def analyze_existing_block():
         return jsonify({'error': 'Block not found'}), 404
     
     block_type = flow_data.get("block_type")
-    
-    # Limit history to only the last 10 messages before adding this one
-    history_items = list(history_collection.find(
-        {"block_id": block_id, "user_id": user_id}
-    ).sort("created_at", -1).limit(10))
-    
-    # Delete oldest messages if there are more than 10
-    if len(history_items) >= 10:
-        keep_ids = [item["_id"] for item in history_items]
-        history_collection.delete_many({
-            "block_id": block_id, 
-            "user_id": user_id,
-            "_id": {"$nin": keep_ids}
-        })
     
     # Store user message in history
     history_collection.insert_one({
@@ -280,20 +272,37 @@ def analyze_existing_block():
                     }}
                 )
                 
+                # Keep a copy before removing it from response
+                updated_flow_status = response["updated_flow_status"].copy()
+                
                 # Remove this from response as it's internal
-                internal_updated_flow = response.pop("updated_flow_status", None)
+                response.pop("updated_flow_status", None)
             
             # Get the suggestion for the message content
             suggestion = response.get("suggestion", "")
             
-            # If suggestion is a JSON string, convert it to proper JSON
-            if isinstance(suggestion, str) and (suggestion.startswith('{') or suggestion.startswith('[')):
-                try:
-                    json_obj = json.loads(suggestion)
-                    response["suggestion"] = json.dumps(json_obj, indent=2)
-                except:
-                    # If not valid JSON, leave as is
-                    pass
+            # Format structured data for display if needed
+            current_step = None
+            for step in STANDARD_FLOW_STEPS:
+                if step in response and response[step] is not None:
+                    current_step = step
+                    # Format data for display
+                    if isinstance(response[step], (list, dict)):
+                        if isinstance(response[step], list):
+                            # Format list for display
+                            if all(isinstance(item, dict) for item in response[step]):
+                                # List of dictionaries - convert to formatted text
+                                formatted_items = []
+                                for item in response[step]:
+                                    item_str = ", ".join(f"{k}: {v}" for k, v in item.items())
+                                    formatted_items.append(item_str)
+                                response[step] = formatted_items
+                        elif isinstance(response[step], dict):
+                            # Format dict for display
+                            formatted_items = []
+                            for k, v in response[step].items():
+                                formatted_items.append(f"{k}: {v}")
+                            response[step] = formatted_items
             
             # Store assistant response in history
             history_collection.insert_one({
@@ -305,6 +314,23 @@ def analyze_existing_block():
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             })
+            
+            # Following the standard flow, determine the next step for the response message
+            if current_step and "updated_flow_status" in locals():
+                # Get current completed status
+                is_step_completed = updated_flow_status.get(current_step, False)
+                
+                # If the step was just completed, find the next step
+                if is_step_completed:
+                    next_step = None
+                    for step in STANDARD_FLOW_STEPS:
+                        if not updated_flow_status.get(step, False):
+                            next_step = step
+                            break
+                    
+                    # If there's a next step, add it to the response
+                    if next_step:
+                        response["next_step"] = next_step
             
             return jsonify({
                 "block_id": block_id,
@@ -360,14 +386,11 @@ def get_block(block_id):
     if not block:
         return jsonify({'error': 'Block not found'}), 404
     
-    # Fetch messages for this block (limit to 10 most recent)
+    # Fetch messages for this block
     messages = list(history_collection.find(
         {"block_id": block_id, "user_id": user_id},
-        {'_id': 0, 'user_id': 0, 'block_id': 0, 'result': 0}
-    ).sort("created_at", -1).limit(10))
-    
-    # Sort chronologically (oldest first)
-    messages.reverse()
+        {'_id': 0, 'user_id': 0, 'block_id': 0}
+    ).sort("created_at", 1))  # Sort chronologically (oldest first)
     
     # Sanitize message content to ensure plain text
     for message in messages:
@@ -418,24 +441,11 @@ def clear_block(block_id):
     # Delete messages
     history_collection.delete_many({"block_id": block_id, "user_id": user_id})
     
-    # Reset flow status
+    # Reset flow status to match standard flow
     flow_collection.update_one(
         {"block_id": block_id, "user_id": user_id},
         {"$set": {
-            "flow_status": {
-                "title": False,
-                "abstract": False,
-                "stakeholders": False,
-                "tags": False,
-                "assumptions": False,
-                "constraints": False,
-                "risks": False,
-                "aspects_implications": False,
-                "impact": False,
-                "connections": False,
-                "classifications": False,
-                "think_models": False
-            },
+            "flow_status": {step: False for step in STANDARD_FLOW_STEPS},
             "updated_at": datetime.utcnow()
         }}
     )
@@ -471,26 +481,13 @@ def create_new_block():
     # Create a new block ID
     block_id = str(uuid.uuid4())
     
-    # Initialize flow status
+    # Initialize flow status with standard steps
     flow_status = {
         "user_id": user_id,
         "block_id": block_id,
         "block_type": block_type,
         "initial_input": "",
-        "flow_status": {
-            "title": False,
-            "abstract": False,
-            "stakeholders": False,
-            "tags": False,
-            "assumptions": False,
-            "constraints": False,
-            "risks": False,
-            "aspects_implications": False,
-            "impact": False,
-            "connections": False,
-            "classifications": False,
-            "think_models": False
-        },
+        "flow_status": {step: False for step in STANDARD_FLOW_STEPS},
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
@@ -510,18 +507,18 @@ def create_new_block():
     
     # Add welcome message based on block type - making it more conversational
     welcome_messages = {
-        "idea": "Hi there! Let's explore some innovative ideas together. What's on your mind?",
-        "problem": "Hi! I'm here to help you think through challenges. What problem are you working on?",
-        "possibility": "Hey there! Let's explore what might be possible. What are you curious about?",
-        "moonshot": "Hi! I'm here for the big, bold ideas. What ambitious thought are you exploring?",
-        "needs": "Hello! Let's talk about key needs and requirements. What are you focusing on?",
-        "opportunity": "Hi there! Let's explore promising opportunities together. What's caught your attention?",
-        "concept": "Hello! I'm here to help develop concepts and solutions. What are you working on?",
-        "outcome": "Hi! Let's talk about outcomes and results. What are you hoping to achieve?",
-        "general": "Hello! I'm here to help with creative thinking. What's on your mind today?"
+        "idea": "Welcome to SparkBlocks. How can we help you generate innovative ideas today?",
+        "problem": "Welcome to SparkBlocks. How can we help you clarify complex problems today?",
+        "possibility": "Welcome to SparkBlocks. How can we help you expand possibilities today?",
+        "moonshot": "Welcome to SparkBlocks. How can we help you develop your ideal future result and moonshot vision today?",
+        "needs": "Welcome to SparkBlocks. How can we help you identify key needs today?",
+        "opportunity": "Welcome to SparkBlocks. How can we help you discover potential opportunities today?",
+        "concept": "Welcome to SparkBlocks. How can we help you develop structured concepts today?",
+        "outcome": "Welcome to SparkBlocks. How can we help you evaluate desired outcomes today?",
+        "general": "Welcome to SparkBlocks. How can we help you clarify complex problems, generate innovative ideas, expand possibilities, or develop your ideal future result and moonshot vision today?"
     }
     
-    welcome_msg = welcome_messages.get(block_type, "Hi there! What's on your mind today?")
+    welcome_msg = welcome_messages.get(block_type, "Welcome to SparkBlocks. How can I assist you today?")
     
     history_collection.insert_one({
         "user_id": user_id,

@@ -1,6 +1,8 @@
 from crewai import Agent, Task, Crew, Process
 from crewai import LLM
 import logging
+import json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +11,7 @@ def classify_user_input(user_input):
     Classifies the user input into one of the eight block types or identifies it as a greeting.
     
     Returns:
-        tuple: (block_type, confidence_score, is_greeting)
+        tuple: (block_type, confidence_score, is_greeting, classification_message)
     """
     # First check if it's a greeting using a simple rule-based approach
     greeting_phrases = [
@@ -31,7 +33,7 @@ def classify_user_input(user_input):
     
     # If it's a simple greeting with no substantive content, return general type with low confidence
     if is_greeting and len(clean_input.split()) <= 5:
-        return "general", 5, True
+        return "general", 5, True, "Welcome to SparkBlocks. How can I help you today?"
     
     try:
         # Initialize LLM
@@ -43,8 +45,8 @@ def classify_user_input(user_input):
         # Create classification agent
         classification_agent = Agent(
             role="Conversation Analyst",
-            goal="Understand what people are trying to discuss",
-            backstory="""You're good at understanding what topics people want to talk about. 
+            goal="Understand what people are trying to discuss and provide appropriate classification messages",
+            backstory="""You're good at understanding what topics people want to talk about and providing helpful classification messages. 
             When someone shares a thought, you can tell if they're talking about an idea, 
             a problem, a possibility, or something else.""",
             verbose=True,
@@ -71,11 +73,29 @@ def classify_user_input(user_input):
             IMPORTANT: If they're just saying hello (like "hello", "hi", "hey there") with no real content,
             mark this as a greeting.
             
+            Once you've determined the category, create a standardized classification message that follows this pattern:
+            
+            For problems:
+            "Great! Let's classify this problem related to [brief topic]. This will help us understand it better. Once classified, we can decide on the next steps."
+            
+            For ideas:
+            "Great! I've identified this as an idea related to [brief topic]. Let's explore it further. Once classified, we can proceed to generate a title that captures the essence of your idea!"
+            
+            For possibilities:
+            "Great! Let's explore this possibility related to [brief topic]. This will help us understand its potential. Once classified, we can decide on the next steps."
+            
+            For moonshots:
+            "Great! Let's classify this moonshot vision related to [brief topic]. This will help us understand its transformative potential. Once classified, we can decide on the next steps."
+            
+            For other types:
+            "Great! I've identified this as a [type] related to [brief topic]. Let's explore it further. Once classified, we can decide on the next steps."
+            
             Your output must be EXACTLY in this JSON format:
             {{
                 "block_type": "one of the eight types listed above, or 'general' if it's just a greeting",
                 "confidence": "a number between 1-10 representing your confidence",
-                "is_greeting": "true or false - whether this is primarily just a greeting"
+                "is_greeting": "true or false - whether this is primarily just a greeting",
+                "classification_message": "Your standardized classification message following the pattern above"
             }}
             """,
             agent=classification_agent,
@@ -94,10 +114,6 @@ def classify_user_input(user_input):
         result = crew.kickoff()
         
         # Parse the result
-        import json
-        import re
-        
-        # Extract JSON from the result if needed
         json_match = re.search(r'({.*})', result.raw, re.DOTALL)
         if json_match:
             json_str = json_match.group(1)
@@ -106,15 +122,23 @@ def classify_user_input(user_input):
                 block_type = result_data.get("block_type", "problem")  # Default to problem if parsing fails
                 confidence = int(result_data.get("confidence", 7))  # Default confidence
                 is_greeting = result_data.get("is_greeting", "false").lower() == "true"
+                classification_message = result_data.get("classification_message", "")
                 
-                return block_type, confidence, is_greeting
+                # Add default classification message if not provided
+                if not classification_message:
+                    if is_greeting:
+                        classification_message = "Welcome to SparkBlocks. How can I help you today?"
+                    else:
+                        classification_message = f"Great! I've identified this as a {block_type} type. Let's explore it further."
+                
+                return block_type, confidence, is_greeting, classification_message
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse classification result: {json_str}")
-                return "problem", 5, False  # Default with low confidence
+                return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."
         else:
             logger.error("No JSON found in classification result")
-            return "problem", 5, False  # Default with low confidence
+            return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."
             
     except Exception as e:
         logger.error(f"Error in classification: {str(e)}")
-        return "problem", 5, False  # Default with low confidence on any error
+        return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."

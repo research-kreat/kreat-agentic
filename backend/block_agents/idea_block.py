@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class IdeaBlockHandler(BaseBlockHandler):
     """
-    Handler for the Idea block type
+    Handler for the Idea block type - follows standardized flow from chat-flow.txt
     """
     
     def initialize_block(self, user_input):
@@ -25,40 +25,43 @@ class IdeaBlockHandler(BaseBlockHandler):
         
         # Create specialized agent for idea initialization
         idea_agent = Agent(
-            role="Creative Thinking Partner",
-            goal="Help people develop innovative ideas naturally",
-            backstory="""You're a thoughtful conversation partner who helps people refine their ideas through natural dialogue. 
-            You avoid sounding like an instruction manual or process guide.""",
+            role="Idea Development Assistant",
+            goal="Classify input and help users develop innovative ideas",
+            backstory="""You help users refine their ideas through natural dialogue
+            following a structured but conversational approach.""",
             verbose=True,
             llm=self.llm
         )
         
+        # Create task for initial analysis
         analysis_task = Task(
             description=f"""
-            The person has shared this idea:
+            The user has shared this initial input:
             
             "{user_input}"
             
-            Your goal is to provide a natural, conversational response that:
-            1. Shows genuine interest in their idea
-            2. Acknowledges something specific from what they shared
-            3. Asks a thoughtful follow-up question to explore their idea further
+            Your goal is to classify this as an idea and prepare a two-part response:
             
-            IMPORTANT CONSTRAINTS:
-            - Keep your response to 2-3 sentences maximum
-            - Write in a casual, conversational tone as if talking to a colleague
-            - Don't mention frameworks, processes, or structured approaches
-            - Don't use phrases like "would you like to" or "let's proceed to" 
-            - Only mention information directly related to what they've shared
-            - Don't make any claims that aren't directly supported by their message
-            - If you're unsure about details, ask questions rather than making assumptions
+            PART 1: A classification message that tells the user:
+            - You recognize this as an idea
+            - You'll help classify it for better understanding
+            - You'll decide on next steps after classification
             
-            Don't use markdown, bullet points, or structured formatting.
+            PART 2: A suggestion about generating a title 
+            - Ask if they'd like to generate a title for their idea
+            - Keep it simpler and conversational
+            
+            FORMAT:
+            {{
+                "identified_as": "idea",
+                "classification_message": "Your classification message from PART 1",
+                "suggestion": "Your title question from PART 2"
+            }}
             """,
             agent=idea_agent,
-            expected_output="Brief, conversational response to their idea"
+            expected_output="JSON with classification message and suggestion"
         )
-
+        
         # Execute the analysis
         crew = Crew(
             agents=[idea_agent],
@@ -70,20 +73,54 @@ class IdeaBlockHandler(BaseBlockHandler):
         try:
             result = crew.kickoff()
             
-            # Prepare response with suggestion for title
-            response = {
-                "identified_as": "idea",
-                "analysis": result.raw.strip(),
-                "suggestion": result.raw.strip()
-            }
+            # Try to parse JSON from the result
+            import json
+            import re
             
-            return response
+            json_match = re.search(r'({.*})', result.raw, re.DOTALL)
+            if json_match:
+                try:
+                    result_data = json.loads(json_match.group(1))
+                    # Ensure required fields are present
+                    if "identified_as" not in result_data:
+                        result_data["identified_as"] = "idea"
+                    if "classification_message" not in result_data:
+                        result_data["classification_message"] = "Great! I've identified this as an idea. Let's explore it further and decide on next steps."
+                    if "suggestion" not in result_data:
+                        result_data["suggestion"] = "Would you like to generate a title for this idea?"
+                    
+                    return result_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON response: {result.raw}")
+            
+            # Fallback if JSON parsing fails
+            return {
+                "identified_as": "idea",
+                "classification_message": "Great! I've identified this as an idea. Let's explore it further and decide on next steps.",
+                "suggestion": "Would you like to generate a title for this idea?"
+            }
         except Exception as e:
             logger.error(f"Error initializing idea block: {str(e)}")
             
             # Fallback response
             return {
                 "identified_as": "idea",
-                "analysis": "That's an interesting idea with potential. What would you like to call it?",
-                "suggestion": "That's an interesting idea with potential. What would you like to call it?"
+                "classification_message": "Great! I've identified this as an idea. Let's explore it further and decide on next steps.",
+                "suggestion": "Would you like to generate a title for this idea?"
             }
+            
+    def process_message(self, user_message, flow_status):
+        """
+        Process a user message for an idea block based on current flow status
+        
+        This method overrides the base implementation to use the standardized chat flow
+        
+        Args:
+            user_message: Message from the user
+            flow_status: Current flow status
+            
+        Returns:
+            dict: Response with results and next step suggestion
+        """
+        # Use the base implementation that now follows the standardized flow
+        return super().process_message(user_message, flow_status)

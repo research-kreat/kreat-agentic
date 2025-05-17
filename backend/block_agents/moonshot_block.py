@@ -1,12 +1,14 @@
 from utils_agents.base_block_handler import BaseBlockHandler
 import logging
 from crewai import Agent, Task, Crew, Process
+import json
+import re
 
 logger = logging.getLogger(__name__)
 
 class MoonshotBlockHandler(BaseBlockHandler):
     """
-    Handler for the Moonshot block type - for ambitious, transformative ideas
+    Handler for the Moonshot block type - follows standardized flow from chat-flow.txt
     """
     
     def initialize_block(self, user_input):
@@ -25,10 +27,10 @@ class MoonshotBlockHandler(BaseBlockHandler):
         
         # Create specialized agent for moonshot initialization
         moonshot_agent = Agent(
-            role="Big Idea Explorer",
-            goal="Help people develop ambitious, transformative ideas",
-            backstory="""You're a visionary thinker who helps people explore ambitious ideas that could transform the future.
-            You encourage bold thinking while remaining grounded in possibility. You're enthusiastic about big ideas without being unrealistic.""",
+            role="Moonshot Vision Assistant",
+            goal="Classify input and help users develop transformative ideas",
+            backstory="""You help users think big and develop ambitious, transformative ideas through natural dialogue
+            following a structured but conversational approach.""",
             verbose=True,
             llm=self.llm
         )
@@ -36,23 +38,31 @@ class MoonshotBlockHandler(BaseBlockHandler):
         # Create task for initial analysis
         analysis_task = Task(
             description=f"""
-            The person has shared this ambitious idea:
+            The user has shared this initial input:
             
             "{user_input}"
             
-            First, understand what makes this a potentially transformative idea and why it matters.
+            Your goal is to classify this as a moonshot vision and prepare a two-part response:
             
-            Then, respond with 2-3 sentences that:
-            1. Show genuine enthusiasm for their ambitious vision
-            2. Highlight the transformative potential you see in it
-            3. End with a natural question about what they might call this moonshot idea
+            PART 1: A classification message that tells the user:
+            - You recognize this as a moonshot or transformative idea
+            - You'll help classify it for better understanding
+            - You'll decide on next steps after classification
             
-            Keep your response conversational and natural - avoid phrases like "Would you like to...", "The next step is...", or "Let's generate a..."
+            PART 2: A suggestion about generating a title 
+            - Ask if they'd like to generate a title for this moonshot vision
+            - Keep it conversational and brief
+            - Keep it simpler and conversational
             
-            Don't use markdown, bullet points, or structured formatting.
+            FORMAT:
+            {{
+                "identified_as": "moonshot",
+                "classification_message": "Your classification message from PART 1",
+                "suggestion": "Your title question from PART 2"
+            }}
             """,
             agent=moonshot_agent,
-            expected_output="Brief analysis and natural follow-up"
+            expected_output="JSON with classification message and suggestion"
         )
         
         # Execute the analysis
@@ -66,20 +76,51 @@ class MoonshotBlockHandler(BaseBlockHandler):
         try:
             result = crew.kickoff()
             
-            # Prepare response with suggestion for title
-            response = {
-                "identified_as": "moonshot",
-                "analysis": result.raw.strip(),
-                "suggestion": result.raw.strip()  # Use the same natural response
-            }
+            # Try to parse JSON from the result
+            json_match = re.search(r'({.*})', result.raw, re.DOTALL)
+            if json_match:
+                try:
+                    result_data = json.loads(json_match.group(1))
+                    # Ensure required fields are present
+                    if "identified_as" not in result_data:
+                        result_data["identified_as"] = "moonshot"
+                    if "classification_message" not in result_data:
+                        result_data["classification_message"] = "Great! Let's classify this moonshot vision related to your input. This will help us understand its transformative potential. Once classified, we can decide on the next steps."
+                    if "suggestion" not in result_data:
+                        result_data["suggestion"] = "Would you like to generate a title for this moonshot vision?"
+                    
+                    return result_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON response: {result.raw}")
             
-            return response
+            # Fallback if JSON parsing fails
+            return {
+                "identified_as": "moonshot",
+                "classification_message": "Great! Let's classify this moonshot vision related to your input. This will help us understand its transformative potential. Once classified, we can decide on the next steps.",
+                "suggestion": "Would you like to generate a title for this moonshot vision?"
+            }
         except Exception as e:
             logger.error(f"Error initializing moonshot block: {str(e)}")
             
             # Fallback response
             return {
                 "identified_as": "moonshot",
-                "analysis": "That's an ambitious and potentially transformative idea! What would you call this moonshot vision?",
-                "suggestion": "That's an ambitious and potentially transformative idea! What would you call this moonshot vision?"
+                "classification_message": "Great! Let's classify this moonshot vision related to your input. This will help us understand its transformative potential. Once classified, we can decide on the next steps.",
+                "suggestion": "Would you like to generate a title for this moonshot vision?"
             }
+            
+    def process_message(self, user_message, flow_status):
+        """
+        Process a user message for a moonshot block based on current flow status
+        
+        This method uses the base implementation that follows the standardized flow
+        
+        Args:
+            user_message: Message from the user
+            flow_status: Current flow status
+            
+        Returns:
+            dict: Response with results and next step suggestion
+        """
+        # Use the base implementation that now follows the standardized flow
+        return super().process_message(user_message, flow_status)

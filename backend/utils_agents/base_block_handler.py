@@ -33,7 +33,7 @@ class BaseBlockHandler(ABC):
             temperature=0.7
         )
         
-        # Steps in the ideal flow order - maintained but not explicitly shown to users
+        # Standard flow steps for all block types (following chat-flow.txt)
         self.flow_steps = [
             "title",
             "abstract",
@@ -42,12 +42,28 @@ class BaseBlockHandler(ABC):
             "assumptions",
             "constraints",
             "risks",
-            "aspects_implications",
+            "areas",
             "impact",
             "connections",
             "classifications",
             "think_models"
         ]
+        
+        # Step descriptions for user-facing messages
+        self.step_descriptions = {
+            "title": "a concise, compelling title",
+            "abstract": "a clear summary of the core concept",
+            "stakeholders": "people or groups who would be involved or affected",
+            "tags": "key themes or categories",
+            "assumptions": "things we're taking for granted",
+            "constraints": "limitations or restrictions",
+            "risks": "potential problems or challenges",
+            "areas": "different related fields or domains",
+            "impact": "areas where this could make a difference",
+            "connections": "relationships to other ideas or fields",
+            "classifications": "ways to categorize this concept",
+            "think_models": "different thinking approaches or frameworks"
+        }
     
     def is_greeting(self, user_input):
         """
@@ -188,8 +204,9 @@ class BaseBlockHandler(ABC):
             block_type = block_data.get("block_type", "general")
             return self.handle_greeting(user_message, block_type)
         
-        # Check response type - "ok", "yes", "sure", etc. are all affirmative
-        response_type = self._analyze_user_response(user_message)
+        # Determine if user is confirming to proceed with current step
+        # This matches the chat flow where any confirmation ("ok", "yes", etc.) moves to the next step
+        is_confirmation = self._is_user_confirmation(user_message)
         
         # Find the current step based on flow status
         current_step = self._get_current_step(flow_status)
@@ -197,9 +214,9 @@ class BaseBlockHandler(ABC):
         if not current_step:
             return {"suggestion": "Great! We've covered all the main aspects. Is there anything specific you'd like to explore further about this?"}
             
-        if response_type == "affirmative":
-            # Generate the requested content
-            result = self._generate_content_with_followup(current_step, user_message, flow_status, history)
+        if is_confirmation:
+            # User confirms to proceed - generate content for current step
+            result = self._generate_step_content(current_step, user_message, flow_status, history)
             
             # Update flow status
             updated_flow_status = flow_status.copy()
@@ -208,243 +225,126 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
-            # Create more natural follow-up questions based on next step
-            follow_ups = {
-                "title": "Would you like to create a brief abstract that explains what this is about?",
-                "abstract": "Now that we have an abstract, should we identify who the key stakeholders might be?",
-                "stakeholders": "Should we add some tags or keywords to help categorize this?",
-                "tags": "Let's think about any assumptions we're making. Would you like to explore those?",
-                "assumptions": "Are there any constraints or limitations we should consider?",
-                "constraints": "Would you like to identify any potential risks and how to address them?",
-                "risks": "Would you like to explore different aspects and implications of this idea?",
-                "aspects_implications": "Should we consider what kind of impact this might have?",
-                "impact": "Would you like to explore how this connects to other ideas or fields?",
-                "connections": "Should we categorize this concept in different ways?",
-                "classifications": "Would you like to look at this from different thinking perspectives?",
-                "think_models": "We've covered the main points! Any other aspects you'd like to explore?"
-            }
-            
+            # Following the chat flow, generate a standardized follow-up question about the next step
             if next_step:
-                suggestion = follow_ups.get(next_step, f"Would you like to look at the {next_step.replace('_', ' ')} next?")
+                next_step_description = self.step_descriptions.get(next_step, next_step.replace("_", " "))
+                suggestion = f"Now, let's generate {next_step_description} for your idea. This will help us understand more about your concept."
             else:
-                suggestion = "That covers all the main points! Is there anything specific you'd like to explore further?"
+                suggestion = "Great! We've completed all the steps. Is there anything specific you'd like to explore further about this concept?"
             
-            # Prepare response with additional formatting for clarity
-            if current_step == "title":
-                formatted_content = f"Title: {result}"
-            elif current_step == "abstract":
-                formatted_content = f"Abstract:\n{result}"
-            elif isinstance(result, list):
-                # For list results, format them nicely
-                formatted_content = []
-                for item in result:
-                    if isinstance(item, dict):
-                        formatted_item = {}
-                        for key, value in item.items():
-                            formatted_item[key] = value
-                        formatted_content.append(formatted_item)
-                    else:
-                        formatted_content.append(item)
-            else:
-                formatted_content = result
+            # Prepare response with formatted content
+            content = result if isinstance(result, dict) else self._format_step_content(current_step, result)
             
             # Prepare response
             response = {
-                current_step: formatted_content,
+                current_step: content,
                 "suggestion": suggestion,
                 "updated_flow_status": updated_flow_status
             }
             
             return response
-            
-        elif response_type == "skip":
-            # User wants to skip the current step
-            updated_flow_status = flow_status.copy()
-            updated_flow_status[current_step] = True
-            
-            # Get next step
-            next_step = self._get_next_step(updated_flow_status)
-            
-            follow_ups = {
-                "title": "No problem. Would you like to create a brief abstract instead?",
-                "abstract": "Sure, let's skip that. Would you like to identify key stakeholders instead?",
-                "stakeholders": "No problem. Would you prefer to add some tags or keywords?",
-                "assumptions": "That's fine. Would you like to consider constraints or limitations instead?",
-                "constraints": "OK, let's skip that. Should we look at potential risks instead?",
-                "risks": "No problem. Would you like to explore different aspects and implications?",
-                "aspects_implications": "Sure. Would you prefer to consider what kind of impact this might have?",
-                "impact": "That's fine. Should we explore how this connects to other ideas?",
-                "connections": "No problem. Would you like to categorize this concept in different ways?",
-                "classifications": "OK. Would you prefer to look at this from different thinking perspectives?",
-                "think_models": "No problem. Is there anything specific you'd like to focus on instead?"
-            }
-            
-            if next_step:
-                suggestion = follow_ups.get(next_step, f"Would you like to look at {next_step.replace('_', ' ')} instead?")
-            else:
-                suggestion = "No problem. What would you like to focus on instead?"
-            
-            response = {
-                "suggestion": suggestion,
-                "updated_flow_status": updated_flow_status
-            }
-            
-            return response
-            
-        elif response_type == "negative":
-            # User doesn't want to continue with the flow
-            suggestion = "No problem. What aspects of this would you prefer to focus on?"
-            
-            return {
-                "suggestion": suggestion
-            }
-            
-        elif response_type == "question":
-            # Handle user questions about the process
-            return self._handle_process_question(user_message, current_step, history)
-            
-        else:  # "other" - user is talking about something unrelated or giving open input
-            # Generate a contextual response using LLM
-            response = self._generate_contextual_response(user_message, current_step, flow_status, history)
-            
-            return {
-                "suggestion": response
-            }
-
-    def _analyze_user_response(self, message):
+        else:
+            # User provided content or other input - respond contextually
+            return self._generate_contextual_response(user_message, current_step, flow_status, history)
+    
+    def _is_user_confirmation(self, message):
         """
-        Analyze the user's response to determine their intent
+        Check if the user message is a confirmation to proceed
+        Matches any affirmative response like "ok", "yes", "sure", "proceed", etc.
         
         Args:
             message: User's message
             
         Returns:
-            str: Response type ('affirmative', 'negative', 'skip', 'question', 'other')
+            bool: True if it's a confirmation, False otherwise
         """
         message = message.lower().strip()
         
-        # Affirmative responses
-        affirmative_phrases = [
-            "yes", "yeah", "yep", "sure", "ok", "okay", "proceed", 
+        # Common confirmation phrases
+        confirmation_phrases = [
+            "ok", "okay", "yes", "yeah", "yep", "sure", "proceed", 
             "let's do it", "go ahead", "continue", "generate", "please do",
-            "sounds good", "good", "great", "perfect", "do it"
+            "sounds good", "good", "great", "perfect", "do it",
+            "i'm ready", "ready", "let's go", "go for it", "next"
         ]
         
-        # Negative responses
-        negative_phrases = [
-            "no", "nope", "not now", "i don't want", "don't", "stop", 
-            "let's not", "i don't think so", "negative", "pass"
-        ]
-        
-        # Skip responses
-        skip_phrases = [
-            "skip", "move on", "next", "skip this", "jump to next", 
-            "let's skip", "go to next", "bypass", "skip this step"
-        ]
-        
-        # Question indicators
-        question_indicators = [
-            "what is", "how does", "why do", "can you explain", "tell me about",
-            "what does", "how do", "?", "what are", "explain"
-        ]
-        
-        # Check for exact matches (for short responses like "ok")
-        if message in ["ok", "okay", "yes", "yeah", "sure", "good", "great"]:
-            return "affirmative"
-        
-        # Check for affirmative responses
-        for phrase in affirmative_phrases:
-            if phrase in message.split():
-                return "affirmative"
+        # Check for exact matches for very short inputs
+        if message in confirmation_phrases:
+            return True
+            
+        # Check if message starts with or contains confirmation phrases
+        for phrase in confirmation_phrases:
+            if message.startswith(phrase) or f" {phrase} " in f" {message} ":
+                return True
                 
-        # Check for skip requests
-        for phrase in skip_phrases:
-            if phrase in message:
-                return "skip"
-                
-        # Check for negative responses
-        for phrase in negative_phrases:
-            if phrase in message:
-                return "negative"
-                
-        # Check for questions
-        for indicator in question_indicators:
-            if indicator in message:
-                return "question"
-                
-        # If none of the above, classify as "other"
-        return "other"
+        return False
     
-    def _handle_process_question(self, user_message, current_step, history):
+    def _format_step_content(self, step, content):
+        """Format content based on the step type for standardized presentation"""
+        if step == "title":
+            return f"Title: {content}"
+        elif step == "abstract":
+            return f"Abstract:\n{content}"
+        else:
+            # For structured data, leave as is
+            return content
+    
+    def _generate_step_content(self, step, user_message, flow_status, history):
         """
-        Handle questions about the process
+        Generate content for the current step
         
         Args:
-            user_message: User's question
-            current_step: Current step in the flow
+            step: Current step in the flow
+            user_message: User's message
+            flow_status: Current flow status
             history: Conversation history
             
         Returns:
-            dict: Response with explanation
+            Content for the current step
         """
-        # Create a specialized agent for answering process questions
+        # Get the initial input from the flow data
+        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
+        initial_input = block_data.get("initial_input", "")
+        block_type = block_data.get("block_type", "general")
+        
+        # Get previously generated content
+        previous_content = self._get_previous_content(history)
+        
+        # Create agent for content generation
         agent = Agent(
-            role="Conversation Guide",
-            goal="Help users understand the creative thinking process clearly",
-            backstory="You're a friendly guide who helps people understand creative thinking in a natural way. You avoid formal language, bullet points, or explicit instructions.",
+            role="Creative Thinking Partner",
+            goal=f"Generate {self.step_descriptions.get(step, step)} for the user's {block_type}",
+            backstory="You help people develop ideas through structured thinking. You're analytical, creative, and thorough.",
             verbose=True,
             llm=self.llm
         )
         
-        # Convert steps to natural language
-        step_descriptions = {
-            "title": "giving your idea a clear name",
-            "abstract": "summarizing the core concept",
-            "stakeholders": "thinking about who would be involved or affected",
-            "tags": "identifying key themes or categories",
-            "assumptions": "recognizing what assumptions we're making",
-            "constraints": "understanding limitations or constraints",
-            "risks": "considering potential risks",
-            "aspects_implications": "exploring different aspects and implications",
-            "impact": "considering the potential impact",
-            "connections": "finding connections to other ideas or systems",
-            "classifications": "categorizing the idea",
-            "think_models": "looking at different thinking perspectives"
-        }
+        # Prepare prompt context
+        context = self._prepare_step_context(step, initial_input, previous_content, block_type)
         
-        current_step_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
-        
-        # Create task for answering the question
+        # Create task for content generation
         task = Task(
             description=f"""
-            The user has asked a question:
-            "{user_message}"
+            {context}
             
-            You're currently talking about {current_step_desc}.
+            Your task: Generate {self.step_descriptions.get(step, step)} for this {block_type}.
             
-            Conversation history (last few messages):
-            {self._format_history_for_prompt(history)}
+            Follow these guidelines for "{step}":
+            {self._get_step_guidelines(step)}
             
-            Give a helpful, conversational explanation that:
-            - Answers their question directly and naturally
-            - Uses everyday language, not technical jargon
-            - Avoids bullet points, numbers, or explicit instructions
-            - Ends with a natural question that continues the conversation
-            - Is helpful but brief (2-4 sentences)
+            Make your response:
+            - Clear and focused
+            - Relevant to the topic
+            - Following the specific format for this step
+            - Professional yet conversational in tone
             
-            Your explanation should NOT include phrases like:
-            - "Would you like to..."
-            - "The next step is..."
-            - "We are currently at the step of..."
-            - "Let me explain the process..."
-            
-            Instead, just answer naturally as in a normal conversation.
+            Generate ONLY the content for {step}, nothing more.
             """,
             agent=agent,
-            expected_output="A natural conversational response"
+            expected_output=f"Content for {step}"
         )
         
-        # Execute the task
+        # Execute task
         crew = Crew(
             agents=[agent],
             tasks=[task],
@@ -454,14 +354,153 @@ class BaseBlockHandler(ABC):
         
         try:
             result = crew.kickoff()
-            return {"suggestion": result.raw.strip()}
+            return self._parse_step_result(step, result.raw)
         except Exception as e:
-            logger.error(f"Error handling process question: {str(e)}")
-            return {"suggestion": f"I think we were talking about {current_step_desc}. What are your thoughts on that?"}
+            logger.error(f"Error generating content for {step}: {str(e)}")
+            return f"I'm having trouble generating content for {self.step_descriptions.get(step, step)}. Let's try a different approach."
+    
+    def _prepare_step_context(self, step, initial_input, previous_content, block_type):
+        """Prepare context for step content generation"""
+        context = f"Topic/Idea: \"{initial_input}\"\nBlock Type: {block_type}\n\n"
+        
+        # Add previously generated content
+        if previous_content:
+            context += "Previously generated content:\n"
+            for prev_step, content in previous_content.items():
+                if prev_step in self.flow_steps:
+                    if isinstance(content, (dict, list)):
+                        context += f"- {prev_step}: {json.dumps(content, ensure_ascii=False)[:100]}...\n"
+                    else:
+                        context += f"- {prev_step}: {str(content)[:100]}...\n"
+        
+        return context
+    
+    def _get_step_guidelines(self, step):
+        """Get specific guidelines for generating content for a step"""
+        guidelines = {
+            "title": """
+            Create a clear, concise title (5-10 words) that captures the essence of this concept.
+            The title should be memorable and specific to the idea presented.
+            Return only the title text, without any additional explanation.
+            """,
+            
+            "abstract": """
+            Write a concise abstract (150-200 words) that summarizes the core concept.
+            Cover what it is, why it matters, and its potential impact.
+            Use clear, professional language without technical jargon unless necessary.
+            Return only the abstract text, without any headers or additional formatting.
+            """,
+            
+            "stakeholders": """
+            Identify 3-6 key stakeholders relevant to this concept.
+            For each stakeholder, include their role and why they're important.
+            Format as a bullet list with clear stakeholder labels.
+            """,
+            
+            "tags": """
+            Suggest 3-6 relevant tags or keywords for this concept.
+            Choose words that would help categorize or find this concept.
+            Include the concept type (e.g., Technology Advancement).
+            Format as a concise list.
+            """,
+            
+            "assumptions": """
+            Identify 3-6 key assumptions underlying this concept.
+            These are conditions that must be true for the concept to succeed.
+            Format as a bullet list with clear, concise statements.
+            """,
+            
+            "constraints": """
+            Identify 3-6 key constraints or limitations that affect this concept.
+            These could be technical, financial, legal, practical, or other restrictions.
+            Format as a bullet list with clear, concise statements.
+            """,
+            
+            "risks": """
+            Identify 3-6 potential risks or challenges associated with this concept.
+            For each risk, briefly describe its nature and potential impact.
+            Format as a bullet list with clear risk statements.
+            """,
+            
+            "areas": """
+            Identify 4-8 areas or domains related to this concept.
+            These should be fields, disciplines, or sectors connected to the concept.
+            Include a statement about the reach of this concept (e.g., global, regional).
+            Format as a bullet list with clear area names.
+            """,
+            
+            "impact": """
+            Identify 3-6 key impacts or benefits of this concept.
+            For each impact, include a measurable metric or percentage when possible.
+            Format as a bullet list with impact statements that include specific benefits.
+            """,
+            
+            "connections": """
+            Identify 5-12 related ideas or concepts connected to this one.
+            These could be similar concepts, complementary ideas, or prerequisites.
+            Format as a bullet list with clear connection titles.
+            """,
+            
+            "classifications": """
+            Categorize this concept according to 3-5 different classification schemes.
+            This might include innovation type, development stage, complexity level, etc.
+            Format as a bullet list with clear classification categories.
+            """,
+            
+            "think_models": """
+            Apply 3-5 different thinking models to analyze this concept.
+            Examples include SWOT analysis, First Principles, Six Thinking Hats, etc.
+            For each model, provide a brief insight related to the concept.
+            Format as a bullet list with clear model names.
+            """
+        }
+        
+        return guidelines.get(step, f"Generate appropriate content for {step}")
+    
+    def _parse_step_result(self, step, raw_result):
+        """Parse the result based on the step type"""
+        # For structured data steps, try to extract JSON if present
+        structured_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
+                           "areas", "impact", "connections", "classifications", "think_models"]
+        
+        if step in structured_steps:
+            # Try to find JSON in the result
+            json_match = re.search(r'({.*}|\[.*\])', raw_result, re.DOTALL)
+            
+            if json_match:
+                try:
+                    return json.loads(json_match.group(0))
+                except json.JSONDecodeError:
+                    pass
+                    
+            # If JSON parsing fails or no JSON found, return formatted text
+            return self._format_bullet_list(raw_result)
+        else:
+            # For title and abstract, return as plain text
+            return raw_result.strip()
+    
+    def _format_bullet_list(self, text):
+        """Format text as a bullet list if it contains bullet points"""
+        # Split by lines
+        lines = text.strip().split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            # Clean up bullet points for consistency
+            line = line.strip()
+            if line.startswith('•') or line.startswith('-') or line.startswith('*'):
+                # Remove the bullet character and space
+                cleaned_line = line[1:].strip()
+                formatted_lines.append(cleaned_line)
+            elif line and not line.startswith('#') and not line.endswith(':'):
+                # Non-empty lines that aren't headers or list intros
+                formatted_lines.append(line)
+        
+        return formatted_lines if formatted_lines else text.strip()
     
     def _generate_contextual_response(self, user_message, current_step, flow_status, history):
         """
-        Generate a contextual response for an unstructured user message that's more conversational
+        Generate a contextual response for user input that's not a direct confirmation
         
         Args:
             user_message: User's message
@@ -470,17 +509,18 @@ class BaseBlockHandler(ABC):
             history: Conversation history
             
         Returns:
-            str: Contextual response that guides back to the flow
+            dict: Response with suggestion
         """
         # Get the initial input
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
+        block_type = block_data.get("block_type", "general")
         
         # Create an agent for contextual responses
         agent = Agent(
             role="Conversation Guide",
-            goal="Keep conversations natural and engaging",
-            backstory="You're a thoughtful conversation partner who helps develop ideas naturally. You respond to what people say and gently guide the conversation without being pushy.",
+            goal="Guide users through the creative thinking process",
+            backstory="You help users develop their ideas by following a structured yet natural conversation flow.",
             verbose=True,
             llm=self.llm
         )
@@ -488,30 +528,24 @@ class BaseBlockHandler(ABC):
         # Create task for generating a response
         task = Task(
             description=f"""
-            Here's what the conversation is about: "{initial_input}"
+            Topic: "{initial_input}"
+            Block Type: {block_type}
+            Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
             
             Recent conversation:
             {self._format_history_for_prompt(history)}
             
             User's latest message: "{user_message}"
             
-            Create a helpful response that:
-            - Directly addresses what they've just said
-            - Feels like a natural conversation between two people
-            - Includes an appropriate follow-up question based on their message
-            - Is brief (2-3 sentences)
-            
-            IMPORTANT:
-            - Don't use phrases like "the next step", "would you like to", or "shall we continue"
-            - Don't mention any "process", "framework", or "steps"
-            - Don't use bullet points, formatting or markdown
-            - Keep the tone casual but professional
-            - Don't use pre-defined responses, make it sound natural and unique
-            - Don't mention that you're an AI or that you're generating a response
-            - Just respond as a human conversation partner would
+            Your response should:
+            - Be conversational yet professional
+            - Generate things based on the current step ({current_step}) for the given user input
+            - Ask if they'd like to proceed with generating content for the
+            - Not use bullet points or numbered lists
+            - Keep the flow of the conversation moving forward
             """,
             agent=agent,
-            expected_output="A conversational response"
+            expected_output="A contextual response"
         )
         
         # Execute the task
@@ -524,96 +558,52 @@ class BaseBlockHandler(ABC):
         
         try:
             result = crew.kickoff()
-            return result.raw.strip()
+            
+            # Extract any potential updated status or step suggestion from the response
+            is_related_to_current_step = self._is_related_to_current_step(user_message, current_step, initial_input)
+            
+            if is_related_to_current_step:
+                # If user's message is related to current step, guide them to continue
+                suggestion = f"Great input about {self.step_descriptions.get(current_step, current_step)}! Would you like to generate a complete {current_step} section now?"
+            else:
+                # If not related, use the generated response
+                suggestion = result.raw.strip()
+            
+            return {
+                "suggestion": suggestion
+            }
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
-            # Even our fallback should be conversational
-            return f"I see what you mean. What else is on your mind about this?"
+            return {
+                "suggestion": f"I see. Let's get back to {self.step_descriptions.get(current_step, current_step)}. Would you like to generate that now?"
+            }
     
-    def _generate_dynamic_followup(self, next_step, user_message, history):
-        """
-        Generate a dynamic follow-up question based on the next step
-        
-        Args:
-            next_step: The next step in the flow
-            user_message: User's message
-            history: Conversation history
-            
-        Returns:
-            str: Dynamic follow-up question
-        """
-        if not next_step:
-            return "No problem. What else would you like to explore about this?"
-            
-        # Step to natural language description mapping
-        step_descriptions = {
-            "title": "a name or title",
-            "abstract": "the core idea",
-            "stakeholders": "who would be involved or affected",
-            "tags": "key themes or categories",
-            "assumptions": "what we're assuming",
-            "constraints": "limitations to consider",
-            "risks": "potential challenges",
-            "aspects_implications": "different angles or impacts",
-            "impact": "the potential effects",
-            "connections": "how it connects to other ideas",
-            "classifications": "how to categorize this",
-            "think_models": "different perspectives or approaches"
+    def _is_related_to_current_step(self, user_message, current_step, initial_input):
+        """Simple check if user message seems related to current step"""
+        step_keywords = {
+            "title": ["title", "name", "heading", "call it"],
+            "abstract": ["abstract", "summary", "overview", "describe"],
+            "stakeholders": ["stakeholders", "people", "users", "groups", "involved"],
+            "tags": ["tags", "keywords", "categories", "label", "type"],
+            "assumptions": ["assumptions", "assume", "premise", "presuppose"],
+            "constraints": ["constraints", "limitations", "restrictions", "limits"],
+            "risks": ["risks", "problems", "challenges", "issues", "concerns"],
+            "areas": ["areas", "domains", "fields", "subjects", "related to"],
+            "impact": ["impact", "effects", "benefits", "results", "outcomes"],
+            "connections": ["connections", "links", "related", "similar", "connected"],
+            "classifications": ["classifications", "categories", "types", "classes"],
+            "think_models": ["thinking", "models", "frameworks", "approaches", "perspectives"]
         }
         
-        step_desc = step_descriptions.get(next_step, next_step.replace("_", " "))
+        # Get keywords for current step
+        current_keywords = step_keywords.get(current_step, [current_step])
         
-        # Create an agent for generating follow-up questions
-        agent = Agent(
-            role="Conversation Guide",
-            goal="Create natural transitions in conversations",
-            backstory="You're skilled at guiding conversations in a natural way that doesn't feel forced or scripted.",
-            verbose=True,
-            llm=self.llm
-        )
+        # Check if any keyword appears in the user message
+        for keyword in current_keywords:
+            if keyword in user_message.lower():
+                return True
         
-        # Create task for generating a follow-up
-        task = Task(
-            description=f"""
-            Recent conversation:
-            {self._format_history_for_prompt(history)}
-            
-            User's latest message: "{user_message}"
-            
-            You want to naturally guide the conversation toward discussing {step_desc}.
-            
-            Create a brief (1-2 sentence) response that:
-            - Acknowledges their desire to move on
-            - Includes a natural question about {step_desc}
-            - Feels conversational, not like following a script
-            - Avoids phrases like "the next step", "would you like to", or "shall we proceed"
-            
-            The question should be specific enough to guide them but open-ended enough to allow creativity.
-            
-            IMPORTANT: 
-            - Do NOT use phrases like "Why don't we talk about..."
-            - Do NOT mention "steps", "process", or "framework"
-            - Do NOT use bullet points, numbering, or markdown
-            - Keep it casual and natural, as in a normal conversation
-            """,
-            agent=agent,
-            expected_output="A natural follow-up question"
-        )
-        
-        # Execute the task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
-        try:
-            result = crew.kickoff()
-            return result.raw.strip()
-        except Exception as e:
-            logger.error(f"Error generating dynamic follow-up: {str(e)}")
-            return f"Got it. What about {step_desc}?"
+        return False
 
     def _get_current_step(self, flow_status):
         """Get the current step based on flow status"""
@@ -624,11 +614,28 @@ class BaseBlockHandler(ABC):
     
     def _get_next_step(self, flow_status):
         """Get the next step after the current one"""
+        current_step = None
+        next_step = None
+        
+        # Find the current step
         for step in self.flow_steps:
             if not flow_status.get(step, False):
-                return step
+                current_step = step
+                break
+        
+        if current_step is None:
+            return None  # All steps completed
+        
+        # Find the next step
+        found_current = False
+        for step in self.flow_steps:
+            if found_current and not flow_status.get(step, False):
+                next_step = step
+                break
+            if step == current_step:
+                found_current = True
                 
-        return None
+        return next_step
     
     def _get_conversation_history(self, limit=10):
         """
@@ -669,273 +676,3 @@ class BaseBlockHandler(ABC):
                         content[step] = result[step]
         
         return content
-    
-    def _get_task_description(self, step, initial_input, previous_content, user_message, history):
-        """Generate a task description for a specific step"""
-        # Base context with initial input
-        context = f"Topic/idea: \"{initial_input}\"\n\n"
-        
-        # Add recent conversation history (limit to last 5 messages for context)
-        context += "Recent conversation:\n"
-        context += self._format_history_for_prompt(history) + "\n\n"
-        
-        # Add previously generated content for context
-        if previous_content:
-            context += "Previously developed content:\n"
-            for prev_step, content in previous_content.items():
-                if isinstance(content, dict):
-                    # For JSON content, add a summary instead of raw JSON
-                    summary = f"({len(content)} items)"
-                    context += f"{prev_step}: {summary}\n"
-                else:
-                    context += f"{prev_step}: {content}\n"
-        
-        # Step-specific instructions in more conversational language
-        instructions = {
-            "title": """Create a short, memorable title (5-10 words) that captures the essence of this concept.
-            Make it specific and clear. Don't use generic phrases.
-            Return just the title itself, nothing else.""",
-            
-            "abstract": """Write a brief summary (150-200 words) that explains what this concept is about.
-            Cover what it is, why it matters, and who it's for.
-            Use clear language a general audience would understand.
-            Return just the summary text.""",
-            
-            "stakeholders": """Identify 3-5 key people or groups who would care about this concept.
-            For each, briefly explain why they would care.
-            Format as a JSON array of objects with 'stakeholder' and 'interest' keys.""",
-            
-            "tags": """Suggest 3-6 keywords or phrases that describe this concept.
-            Choose words that would help categorize or find this concept.
-            Format as a JSON array of strings.""",
-            
-            "assumptions": """Identify 3-5 things we're taking for granted for this concept to work.
-            These might not be explicitly stated but are necessary for success.
-            Format as a JSON array of strings.""",
-            
-            "constraints": """Identify 3-5 limitations or restrictions that might affect this concept.
-            These could be technical, financial, legal, ethical, or practical considerations.
-            Format as a JSON array of strings.""",
-            
-            "risks": """Identify 3-5 potential problems or challenges for this concept.
-            For each, suggest a possible way to address or mitigate the risk.
-            Format as a JSON array of objects with 'risk' and 'mitigation' keys.""",
-            
-            "aspects_implications": """Explore 3-5 different angles or dimensions of this concept.
-            For each, describe what it might mean or lead to.
-            Format as a JSON object with aspect names as keys and implications as values.""",
-            
-            "impact": """Consider 3-5 areas where this concept could make a difference.
-            Rate each area from 1-10 for how significant the impact might be.
-            Format as a JSON array of objects with 'dimension' and 'rating' keys.""",
-            
-            "connections": """Identify 3-5 ways this concept connects to other ideas or fields.
-            Explain how they relate to each other.
-            Format as a JSON array of objects with 'connection' and 'relationship' keys.""",
-            
-            "classifications": """Categorize this concept in 2-3 different ways.
-            This might include type of innovation, complexity level, or development stage.
-            Format as a JSON object with category names as keys and classification values.""",
-            
-            "think_models": """Apply 3-5 different thinking approaches to this concept.
-            Examples: SWOT analysis, First Principles, Six Thinking Hats, etc.
-            For each approach, provide a brief insight.
-            Format as a JSON object with model names as keys and insights as values."""
-        }
-        
-        task_description = f"""
-        {context}
-        
-        User's message: "{user_message}"
-        
-        Your task: {instructions.get(step, f"Generate content for {step}")}
-        
-        Remember: The content should feel natural and helpful, not like a rigid template.
-        """
-        
-        return task_description
-    
-    def _generate_content_with_followup(self, step, user_message, flow_status, history):
-        """
-        Generate both content for a specific step and a dynamic follow-up in a single LLM call
-        
-        Args:
-            step: Current step to generate
-            user_message: User's message
-            flow_status: Current flow status
-            history: Conversation history
-            
-        Returns:
-            dict: Generated content and follow-up suggestion
-        """
-        # Get the initial input and previous content
-        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
-        initial_input = block_data.get("initial_input", "")
-        
-        # Get previously generated content for context
-        previous_content = self._get_previous_content(history)
-        
-        # Get the next step
-        updated_flow_status = flow_status.copy()
-        updated_flow_status[step] = True
-        next_step = self._get_next_step(updated_flow_status)
-        
-        # Step descriptions for context
-        step_descriptions = {
-            "title": "a concise, compelling title",
-            "abstract": "a clear summary of the core concept",
-            "stakeholders": "people or groups who would be involved or affected",
-            "tags": "key themes or categories",
-            "assumptions": "things we're taking for granted",
-            "constraints": "limitations or restrictions",
-            "risks": "potential problems or challenges",
-            "aspects_implications": "different angles or dimensions",
-            "impact": "areas where this could make a difference",
-            "connections": "relationships to other ideas or fields",
-            "classifications": "ways to categorize this concept",
-            "think_models": "different thinking approaches or frameworks"
-        }
-        
-        next_step_desc = step_descriptions.get(next_step, next_step.replace("_", " ")) if next_step else "other aspects"
-        
-        # Create a specialized agent
-        agent = Agent(
-            role="Creative Thinking Partner",
-            goal="Develop ideas naturally through conversation",
-            backstory="You help people refine their ideas through thoughtful dialogue. You balance between structure and natural conversation.",
-            verbose=True,
-            llm=self.llm
-        )
-        
-        # Content generation formats
-        content_format_instructions = {
-            "title": "Create a short, memorable title (5-10 words).",
-            "abstract": "Write a brief summary (150-200 words).",
-            "stakeholders": "Identify 3-5 key people or groups as a JSON array of objects with 'stakeholder' and 'interest' keys.",
-            "tags": "Suggest 3-6 keywords as a JSON array of strings.",
-            "assumptions": "Identify 3-5 assumptions as a JSON array of strings.",
-            "constraints": "Identify 3-5 limitations as a JSON array of strings.",
-            "risks": "Identify 3-5 potential problems as a JSON array of objects with 'risk' and 'mitigation' keys.",
-            "aspects_implications": "Explore 3-5 different angles as a JSON object with aspect names as keys and implications as values.",
-            "impact": "Consider 3-5 impact areas as a JSON array of objects with 'dimension' and 'rating' keys.",
-            "connections": "Identify 3-5 connections as a JSON array of objects with 'connection' and 'relationship' keys.",
-            "classifications": "Categorize in 2-3 different ways as a JSON object with category names as keys and classification values.",
-            "think_models": "Apply 3-5 different thinking approaches as a JSON object with model names as keys and insights as values."
-        }
-        
-        format_instruction = content_format_instructions.get(step, f"Generate content for {step}")
-        
-        # Create task
-        task = Task(
-            description=f"""
-            Topic/idea: "{initial_input}"
-            
-            Recent conversation:
-            {self._format_history_for_prompt(history)}
-            
-            User's message: "{user_message}"
-            
-            Your task has TWO parts:
-            
-            PART 1: Generate content about {step_descriptions.get(step, step.replace("_", " "))}
-            {format_instruction}
-            
-            PART 2: Create a natural follow-up question about {next_step_desc}
-            This should be a single, conversational sentence that flows naturally from your response above.
-            Don't use phrases like "the next step", "would you like to", or mention any process or framework.
-            Just ask a natural question as one person would ask another in conversation.
-            
-            Format your response as a JSON object with two keys:
-            - "content": your generated content for {step}
-            - "suggestion": your natural follow-up question about {next_step_desc}
-            
-            For example:
-            {{
-              "content": "your generated content here",
-              "suggestion": "your natural follow-up question here"
-            }}
-            """,
-            agent=agent,
-            expected_output="A JSON with content and follow-up question"
-        )
-        
-        # Execute the task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
-        try:
-            result = crew.kickoff()
-            
-            # Try to parse the result as JSON
-            try:
-                # Find JSON pattern in the result
-                json_match = re.search(r'({.*})', result.raw, re.DOTALL)
-                if json_match:
-                    result_json = json.loads(json_match.group(1))
-                    
-                    # Parse content based on step type
-                    content = result_json.get("content", "")
-                    if step in ["stakeholders", "tags", "assumptions", "constraints", "risks", 
-                               "aspects_implications", "impact", "connections", "classifications", "think_models"]:
-                        # Try to parse as JSON if it's a JSON string
-                        if isinstance(content, str) and (content.startswith('{') or content.startswith('[')):
-                            try:
-                                content = json.loads(content)
-                            except:
-                                pass
-                    
-                    return {
-                        "content": content,
-                        "suggestion": result_json.get("suggestion", "What else would you like to explore?")
-                    }
-                else:
-                    logger.error(f"No JSON found in result: {result.raw}")
-                    return {
-                        "content": result.raw.strip(),
-                        "suggestion": "What other aspects would you like to discuss?"
-                    }
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {str(e)}")
-                return {
-                    "content": result.raw.strip(),
-                    "suggestion": "What do you think about this? Any aspects you'd like to explore further?"
-                }
-                
-        except Exception as e:
-            logger.error(f"Error generating content with follow-up: {str(e)}")
-            return {
-                "content": "I'm having trouble with this. Maybe we can approach it differently?",
-                "suggestion": "What aspects of this are most important to you?"
-            }
-    
-    def _parse_result(self, step, raw_result):
-        """Parse the result based on the step type"""
-        import json
-        import re
-        
-        # Steps that should return JSON
-        json_steps = [
-            "stakeholders", "tags", "assumptions", "constraints", "risks",
-            "aspects_implications", "impact", "connections", "classifications", "think_models"
-        ]
-        
-        if step in json_steps:
-            # Try to find JSON in the result
-            json_match = re.search(r'({.*}|\[.*\])', raw_result, re.DOTALL)
-            
-            if json_match:
-                try:
-                    return json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse JSON for {step}: {raw_result}")
-                    # Return as string if JSON parsing fails
-                    return raw_result.strip()
-            else:
-                return raw_result.strip()
-        else:
-            # For non-JSON steps, return the raw text
-            return raw_result.strip()
