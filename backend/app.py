@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import os
 import logging
 import json
-from helpers.general import sanitize_response
+from helpers.global_helper import sanitize_response
 
 # Import our block handlers
 from block_agents.idea_block import IdeaBlockHandler
@@ -162,20 +162,20 @@ def analyze_general_chat():
                 "block_type": block_type,
                 "confidence": confidence,
                 "response": {
-                    "suggestion": greeting_message,
-                    "classification_message": classification_message
+                    "suggestion": greeting_message
                 }
             })
         else:
-            # For non-greeting messages, use the suggestion directly
+            # For non-greeting messages, use the classification and suggestion directly
             suggestion = response.get("suggestion", "")
+            classification_msg = response.get("classification_message", "")
             
             # Store assistant response in history
             history_collection.insert_one({
                 "user_id": user_id,
                 "block_id": block_id,
                 "role": "assistant",
-                "message": suggestion,
+                "message": f"{classification_msg}\n\n{suggestion}",
                 "result": response,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
@@ -188,7 +188,7 @@ def analyze_general_chat():
                 "confidence": confidence,
                 "response": {
                     "suggestion": suggestion,
-                    "classification_message": classification_message
+                    "classification_message": classification_msg
                 }
             })
     else:
@@ -281,7 +281,7 @@ def analyze_existing_block():
             # Get the suggestion for the message content
             suggestion = response.get("suggestion", "")
             
-            # Format structured data for display if needed
+            # Get the current step content if any
             current_step = None
             for step in STANDARD_FLOW_STEPS:
                 if step in response and response[step] is not None:
@@ -289,16 +289,10 @@ def analyze_existing_block():
                     # Format data for display
                     if isinstance(response[step], (list, dict)):
                         if isinstance(response[step], list):
-                            # Format list for display
-                            if all(isinstance(item, dict) for item in response[step]):
-                                # List of dictionaries - convert to formatted text
-                                formatted_items = []
-                                for item in response[step]:
-                                    item_str = ", ".join(f"{k}: {v}" for k, v in item.items())
-                                    formatted_items.append(item_str)
-                                response[step] = formatted_items
+                            # Keep lists as is, without additional formatting
+                            pass
                         elif isinstance(response[step], dict):
-                            # Format dict for display
+                            # Format dict for display as list
                             formatted_items = []
                             for k, v in response[step].items():
                                 formatted_items.append(f"{k}: {v}")
@@ -309,28 +303,11 @@ def analyze_existing_block():
                 "user_id": user_id,
                 "block_id": block_id,
                 "role": "assistant",
-                "message": suggestion,
+                "message": suggestion if current_step is None else f"{response[current_step]}\n\n{suggestion}",
                 "result": response,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             })
-            
-            # Following the standard flow, determine the next step for the response message
-            if current_step and "updated_flow_status" in locals():
-                # Get current completed status
-                is_step_completed = updated_flow_status.get(current_step, False)
-                
-                # If the step was just completed, find the next step
-                if is_step_completed:
-                    next_step = None
-                    for step in STANDARD_FLOW_STEPS:
-                        if not updated_flow_status.get(step, False):
-                            next_step = step
-                            break
-                    
-                    # If there's a next step, add it to the response
-                    if next_step:
-                        response["next_step"] = next_step
             
             return jsonify({
                 "block_id": block_id,
@@ -339,6 +316,7 @@ def analyze_existing_block():
             })
     else:
         return jsonify({'error': f'Unsupported block type: {block_type}'}), 400
+
 
 @app.route('/api/blocks', methods=['GET'])
 def get_blocks():
@@ -507,18 +485,18 @@ def create_new_block():
     
     # Add welcome message based on block type - making it more conversational
     welcome_messages = {
-        "idea": "Welcome to SparkBlocks. How can we help you generate innovative ideas today?",
-        "problem": "Welcome to SparkBlocks. How can we help you clarify complex problems today?",
-        "possibility": "Welcome to SparkBlocks. How can we help you expand possibilities today?",
-        "moonshot": "Welcome to SparkBlocks. How can we help you develop your ideal future result and moonshot vision today?",
-        "needs": "Welcome to SparkBlocks. How can we help you identify key needs today?",
-        "opportunity": "Welcome to SparkBlocks. How can we help you discover potential opportunities today?",
-        "concept": "Welcome to SparkBlocks. How can we help you develop structured concepts today?",
-        "outcome": "Welcome to SparkBlocks. How can we help you evaluate desired outcomes today?",
-        "general": "Welcome to SparkBlocks. How can we help you clarify complex problems, generate innovative ideas, expand possibilities, or develop your ideal future result and moonshot vision today?"
+        "idea": "Welcome! What innovative ideas would you like to explore today?",
+        "problem": "Welcome! What problem would you like to tackle today?",
+        "possibility": "Welcome! What possibilities would you like to explore today?",
+        "moonshot": "Welcome! What ambitious vision would you like to develop today?",
+        "needs": "Welcome! What needs would you like to identify today?",
+        "opportunity": "Welcome! What opportunities would you like to discover today?",
+        "concept": "Welcome! What concept would you like to develop today?",
+        "outcome": "Welcome! What outcomes would you like to evaluate today?",
+        "general": "Welcome! How can I help with your creative thinking today?"
     }
     
-    welcome_msg = welcome_messages.get(block_type, "Welcome to SparkBlocks. How can I assist you today?")
+    welcome_msg = welcome_messages.get(block_type, "Welcome! How can I assist you today?")
     
     history_collection.insert_one({
         "user_id": user_id,

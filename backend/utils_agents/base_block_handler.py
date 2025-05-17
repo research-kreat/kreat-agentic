@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BaseBlockHandler(ABC):
     """
-    Base class for all block handlers
+    Base class for all block handlers with improved conversational flow
     """
     
     def __init__(self, db, block_id, user_id):
@@ -49,20 +49,20 @@ class BaseBlockHandler(ABC):
             "think_models"
         ]
         
-        # Step descriptions for user-facing messages
+        # Step descriptions for user-facing messages - concise, prompt-like, less explanatory
         self.step_descriptions = {
-            "title": "a concise, compelling title",
-            "abstract": "a clear summary of the core concept",
-            "stakeholders": "people or groups who would be involved or affected",
-            "tags": "key themes or categories",
-            "assumptions": "things we're taking for granted",
+            "title": "a compelling title",
+            "abstract": "a clear summary",
+            "stakeholders": "key people or groups involved",
+            "tags": "relevant keywords",
+            "assumptions": "underlying assumptions",
             "constraints": "limitations or restrictions",
-            "risks": "potential problems or challenges",
-            "areas": "different related fields or domains",
-            "impact": "areas where this could make a difference",
-            "connections": "relationships to other ideas or fields",
-            "classifications": "ways to categorize this concept",
-            "think_models": "different thinking approaches or frameworks"
+            "risks": "potential challenges",
+            "areas": "related fields or domains",
+            "impact": "key benefits and outcomes",
+            "connections": "related concepts",
+            "classifications": "categorization schemes",
+            "think_models": "thinking frameworks"
         }
     
     def is_greeting(self, user_input):
@@ -94,35 +94,35 @@ class BaseBlockHandler(ABC):
     
     def handle_greeting(self, user_input, block_type):
         """
-        Handle greeting from user
+        Handle greeting from user with more concise, natural responses
         
         Args:
             user_input: User's greeting message
             block_type: Type of the block
             
         Returns:
-            dict: Response with greeting and prompt for ideas
+            dict: Response with greeting
         """
         # Create a specialized agent for greeting responses
         agent = Agent(
             role="Conversation Guide",
             goal="Engage users in a friendly conversation about innovation",
-            backstory="You are a helpful assistant for creative thinking. You're friendly, conversational, and naturally guide people without being overly instructional.",
+            backstory="You help people develop creative innovations. You're friendly but concise, guiding naturally without being instructional.",
             verbose=True,
             llm=self.llm
         )
         
         # Block-specific contexts to guide the LLM
         block_contexts = {
-            "idea": "innovative ideas and creative concepts",
-            "problem": "challenges and problems that need solving",
-            "possibility": "exploring potential solutions and approaches",
-            "moonshot": "ambitious, transformative ideas",
-            "needs": "requirements and goals to address",
-            "opportunity": "promising opportunities and potential markets",
-            "concept": "structured solutions and frameworks",
-            "outcome": "results and end states to achieve",
-            "general": "creative thinking and innovation"
+            "idea": "innovative ideas",
+            "problem": "problems that need solving",
+            "possibility": "potential solutions",
+            "moonshot": "ambitious, transformative results",
+            "needs": "requirements to address",
+            "opportunity": "promising opportunities",
+            "concept": "structured solutions",
+            "outcome": "results to achieve",
+            "general": "creative thinking"
         }
         
         context = block_contexts.get(block_type, "creative thinking")
@@ -134,17 +134,16 @@ class BaseBlockHandler(ABC):
             
             You're having a conversation about {context}.
             
-            Respond with a friendly greeting that:
+            Respond with a brief, friendly greeting that:
             1. Acknowledges their greeting
-            2. Briefly explains you can help with {block_type}s
-            3. Asks an open-ended question about what they're thinking about related to {context}
+            2. Asks an open-ended question about {context} they're thinking about
             
-            Keep your response conversational, friendly, and concise (2-3 sentences).
-            Don't use bullet points, numbered lists, or markdown.
-            Avoid phrases like "I can help you with..." or "Would you like to..." - just ask naturally.
+            Keep your response VERY concise (1-2 sentences max).
+            Don't use bullet points or numbered lists.
+            Don't say "I can help you with..." or "Would you like to..." - just ask naturally.
             """,
             agent=agent,
-            expected_output="A friendly conversational greeting"
+            expected_output="A brief, friendly greeting"
         )
         
         # Execute the task
@@ -187,6 +186,7 @@ class BaseBlockHandler(ABC):
     def process_message(self, user_message, flow_status):
         """
         Process a user message based on current flow status
+        Using more concise, conversational transitions between steps
         
         Args:
             user_message: Message from the user
@@ -212,7 +212,7 @@ class BaseBlockHandler(ABC):
         current_step = self._get_current_step(flow_status)
         
         if not current_step:
-            return {"suggestion": "Great! We've covered all the main aspects. Is there anything specific you'd like to explore further about this?"}
+            return {"suggestion": "We've covered all the main aspects. What would you like to explore next?"}
             
         if is_confirmation:
             # User confirms to proceed - generate content for current step
@@ -225,12 +225,12 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
-            # Following the chat flow, generate a standardized follow-up question about the next step
+            # Following the chat flow, generate a concise transition to the next step
             if next_step:
                 next_step_description = self.step_descriptions.get(next_step, next_step.replace("_", " "))
-                suggestion = f"Now, let's generate {next_step_description} for your idea. This will help us understand more about your concept."
+                suggestion = f"Let's generate {next_step_description}."
             else:
-                suggestion = "Great! We've completed all the steps. Is there anything specific you'd like to explore further about this concept?"
+                suggestion = "Great! We've completed all the steps. What would you like to explore further?"
             
             # Prepare response with formatted content
             content = result if isinstance(result, dict) else self._format_step_content(current_step, result)
@@ -282,7 +282,7 @@ class BaseBlockHandler(ABC):
     def _format_step_content(self, step, content):
         """Format content based on the step type for standardized presentation"""
         if step == "title":
-            return f"Title: {content}"
+            return f"Title:\n{content}"
         elif step == "abstract":
             return f"Abstract:\n{content}"
         else:
@@ -314,7 +314,7 @@ class BaseBlockHandler(ABC):
         agent = Agent(
             role="Creative Thinking Partner",
             goal=f"Generate {self.step_descriptions.get(step, step)} for the user's {block_type}",
-            backstory="You help people develop ideas through structured thinking. You're analytical, creative, and thorough.",
+            backstory="You help people develop innovations through structured thinking without being verbose.",
             verbose=True,
             llm=self.llm
         )
@@ -327,16 +327,16 @@ class BaseBlockHandler(ABC):
             description=f"""
             {context}
             
-            Your task: Generate {self.step_descriptions.get(step, step)} for this {block_type}.
+            Generate {self.step_descriptions.get(step, step)} for this {block_type}.
             
-            Follow these guidelines for "{step}":
+            Guidelines for "{step}":
             {self._get_step_guidelines(step)}
             
             Make your response:
             - Clear and focused
             - Relevant to the topic
-            - Following the specific format for this step
-            - Professional yet conversational in tone
+            - Following the specified format
+            - NO explanations or commentary
             
             Generate ONLY the content for {step}, nothing more.
             """,
@@ -357,11 +357,11 @@ class BaseBlockHandler(ABC):
             return self._parse_step_result(step, result.raw)
         except Exception as e:
             logger.error(f"Error generating content for {step}: {str(e)}")
-            return f"I'm having trouble generating content for {self.step_descriptions.get(step, step)}. Let's try a different approach."
+            return f"I'm having trouble generating {self.step_descriptions.get(step, step)}. Let's try a different approach."
     
     def _prepare_step_context(self, step, initial_input, previous_content, block_type):
         """Prepare context for step content generation"""
-        context = f"Topic/Idea: \"{initial_input}\"\nBlock Type: {block_type}\n\n"
+        context = f"Topic: \"{initial_input}\"\nBlock Type: {block_type}\n\n"
         
         # Add previously generated content
         if previous_content:
@@ -380,78 +380,71 @@ class BaseBlockHandler(ABC):
         guidelines = {
             "title": """
             Create a clear, concise title (5-10 words) that captures the essence of this concept.
-            The title should be memorable and specific to the idea presented.
-            Return only the title text, without any additional explanation.
+            The title should be memorable and specific.
+            Return only the title text, without any explanation.
             """,
             
             "abstract": """
             Write a concise abstract (150-200 words) that summarizes the core concept.
             Cover what it is, why it matters, and its potential impact.
-            Use clear, professional language without technical jargon unless necessary.
-            Return only the abstract text, without any headers or additional formatting.
+            Use clear, professional language.
+            Return only the abstract text, without headers or additional commentary.
             """,
             
             "stakeholders": """
-            Identify 3-6 key stakeholders relevant to this concept.
-            For each stakeholder, include their role and why they're important.
-            Format as a bullet list with clear stakeholder labels.
+            List 4-8 key stakeholders relevant to this concept.
+            Include individuals, groups, or organizations that are directly or indirectly involved. (e.g., UI/UX Designer, Product Manager, etc.)
+            Format as a simple list.
             """,
             
             "tags": """
-            Suggest 3-6 relevant tags or keywords for this concept.
-            Choose words that would help categorize or find this concept.
-            Include the concept type (e.g., Technology Advancement).
-            Format as a concise list.
+            List 3-6 relevant tags or keywords for this concept.
+            These should be specific and relevant to the topic. (e.g., Technology Innovation, Sustainability, etc.)
+            Format as a list of single words or short phrases.
             """,
             
             "assumptions": """
-            Identify 3-6 key assumptions underlying this concept.
-            These are conditions that must be true for the concept to succeed.
-            Format as a bullet list with clear, concise statements.
+            List 3-5 key assumptions underlying this concept.
+            These should be foundational beliefs or premises that guide the concept's development.
+            Format as short, clear statements without bullet points or numbers.
             """,
             
             "constraints": """
-            Identify 3-6 key constraints or limitations that affect this concept.
-            These could be technical, financial, legal, practical, or other restrictions.
-            Format as a bullet list with clear, concise statements.
+            List 3-5 key constraints or limitations affecting this concept.
+            Format as short, clear statements without bullet points or numbers.
             """,
             
             "risks": """
-            Identify 3-6 potential risks or challenges associated with this concept.
-            For each risk, briefly describe its nature and potential impact.
-            Format as a bullet list with clear risk statements.
+            List 3-5 potential risks or challenges.
+            Format as short, clear statements without bullet points or numbers.
             """,
             
             "areas": """
-            Identify 4-8 areas or domains related to this concept.
-            These should be fields, disciplines, or sectors connected to the concept.
-            Include a statement about the reach of this concept (e.g., global, regional).
-            Format as a bullet list with clear area names.
-            """,
+            List 4-8 fields, disciplines, or domains connected to this concept.
+            Include a note about the reach (e.g., global, regional).
+            """
+            ,
             
             "impact": """
-            Identify 3-6 key impacts or benefits of this concept.
-            For each impact, include a measurable metric or percentage when possible.
-            Format as a bullet list with impact statements that include specific benefits.
+            List 3-5 key impacts or benefits.
+            Format as clear statements emphasizing outcomes.
             """,
             
             "connections": """
-            Identify 5-12 related ideas or concepts connected to this one.
-            These could be similar concepts, complementary ideas, or prerequisites.
-            Format as a bullet list with clear connection titles.
+            List 8-12 related innovations or concepts.
+            Format as a simple list.
             """,
             
             "classifications": """
-            Categorize this concept according to 3-5 different classification schemes.
-            This might include innovation type, development stage, complexity level, etc.
-            Format as a bullet list with clear classification categories.
+            Categorize this concept using 3-5 different classification schemes.
+            Examples: innovation type, development stage, complexity level.
+            Format as a list with category names and values.
             """,
             
             "think_models": """
-            Apply 3-5 different thinking models to analyze this concept.
-            Examples include SWOT analysis, First Principles, Six Thinking Hats, etc.
+            Apply 3-5 different thinking models (SWOT, First Principles, etc.).
             For each model, provide a brief insight related to the concept.
-            Format as a bullet list with clear model names.
+            Format as a list with model names.
             """
         }
         
@@ -473,7 +466,7 @@ class BaseBlockHandler(ABC):
                 except json.JSONDecodeError:
                     pass
                     
-            # If JSON parsing fails or no JSON found, return formatted text
+            # If JSON parsing fails or no JSON found, return formatted list
             return self._format_bullet_list(raw_result)
         else:
             # For title and abstract, return as plain text
@@ -501,6 +494,7 @@ class BaseBlockHandler(ABC):
     def _generate_contextual_response(self, user_message, current_step, flow_status, history):
         """
         Generate a contextual response for user input that's not a direct confirmation
+        With more concise, conversational style
         
         Args:
             user_message: User's message
@@ -520,7 +514,7 @@ class BaseBlockHandler(ABC):
         agent = Agent(
             role="Conversation Guide",
             goal="Guide users through the creative thinking process",
-            backstory="You help users develop their ideas by following a structured yet natural conversation flow.",
+            backstory="You help users develop innovations with concise, clear responses.",
             verbose=True,
             llm=self.llm
         )
@@ -537,15 +531,16 @@ class BaseBlockHandler(ABC):
             
             User's latest message: "{user_message}"
             
-            Your response should:
-            - Be conversational yet professional
-            - Generate things based on the current step ({current_step}) for the given user input
-            - Ask if they'd like to proceed with generating content for the
-            - Not use bullet points or numbered lists
-            - Keep the flow of the conversation moving forward
+            Create a brief, natural response that:
+            - Is conversational, 1-2 sentences maximum
+            - Suggests generating content for the current step ({current_step})
+            - Asks if they'd like to proceed (without being wordy)
+            - Uses NO bullet points or numbered lists
+            - Uses NO explanations or justifications
+            - NEVER explains what you're doing or what will happen next
             """,
             agent=agent,
-            expected_output="A contextual response"
+            expected_output="A brief contextual response"
         )
         
         # Execute the task
@@ -564,7 +559,7 @@ class BaseBlockHandler(ABC):
             
             if is_related_to_current_step:
                 # If user's message is related to current step, guide them to continue
-                suggestion = f"Great input about {self.step_descriptions.get(current_step, current_step)}! Would you like to generate a complete {current_step} section now?"
+                suggestion = f"Ready to generate {self.step_descriptions.get(current_step, current_step)}?"
             else:
                 # If not related, use the generated response
                 suggestion = result.raw.strip()
@@ -575,7 +570,7 @@ class BaseBlockHandler(ABC):
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
             return {
-                "suggestion": f"I see. Let's get back to {self.step_descriptions.get(current_step, current_step)}. Would you like to generate that now?"
+                "suggestion": f"Shall we continue with {self.step_descriptions.get(current_step, current_step)}?"
             }
     
     def _is_related_to_current_step(self, user_message, current_step, initial_input):

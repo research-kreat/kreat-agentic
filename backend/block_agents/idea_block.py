@@ -1,12 +1,14 @@
 from utils_agents.base_block_handler import BaseBlockHandler
 import logging
 from crewai import Agent, Task, Crew, Process
+import json
+import re
 
 logger = logging.getLogger(__name__)
 
 class IdeaBlockHandler(BaseBlockHandler):
     """
-    Handler for the Idea block type - follows standardized flow from chat-flow.txt
+    Handler for the Idea block type with concise conversational flow
     """
     
     def initialize_block(self, user_input):
@@ -28,7 +30,7 @@ class IdeaBlockHandler(BaseBlockHandler):
             role="Idea Development Assistant",
             goal="Classify input and help users develop innovative ideas",
             backstory="""You help users refine their ideas through natural dialogue
-            following a structured but conversational approach.""",
+            following a structured but conversational approach without over-explaining.""",
             verbose=True,
             llm=self.llm
         )
@@ -40,22 +42,18 @@ class IdeaBlockHandler(BaseBlockHandler):
             
             "{user_input}"
             
-            Your goal is to classify this as an idea and prepare a two-part response:
+            Prepare a two-part response:
             
-            PART 1: A classification message that tells the user:
-            - You recognize this as an idea
-            - You'll help classify it for better understanding
-            - You'll decide on next steps after classification
+            PART 1: A brief classification message that acknowledges this as an idea. Just 1-2 sentences.
             
-            PART 2: A suggestion about generating a title 
-            - Ask if they'd like to generate a title for their idea
-            - Keep it simpler and conversational
+            PART 2: A friendly message that shows excitement about the idea and invites the user to proceed with title generation. 
+            Make it conversational and encouraging.
             
             FORMAT:
             {{
                 "identified_as": "idea",
                 "classification_message": "Your classification message from PART 1",
-                "suggestion": "Your title question from PART 2"
+                "suggestion": "Your follow-up message from PART 2"
             }}
             """,
             agent=idea_agent,
@@ -74,9 +72,6 @@ class IdeaBlockHandler(BaseBlockHandler):
             result = crew.kickoff()
             
             # Try to parse JSON from the result
-            import json
-            import re
-            
             json_match = re.search(r'({.*})', result.raw, re.DOTALL)
             if json_match:
                 try:
@@ -85,9 +80,9 @@ class IdeaBlockHandler(BaseBlockHandler):
                     if "identified_as" not in result_data:
                         result_data["identified_as"] = "idea"
                     if "classification_message" not in result_data:
-                        result_data["classification_message"] = "Great! I've identified this as an idea. Let's explore it further and decide on next steps."
+                        result_data["classification_message"] = "Great! I've identified this as an idea. Let's explore it further."
                     if "suggestion" not in result_data:
-                        result_data["suggestion"] = "Would you like to generate a title for this idea?"
+                        result_data["suggestion"] = "It's a great idea! Would you like to proceed with generating a title for it?"
                     
                     return result_data
                 except json.JSONDecodeError:
@@ -96,8 +91,8 @@ class IdeaBlockHandler(BaseBlockHandler):
             # Fallback if JSON parsing fails
             return {
                 "identified_as": "idea",
-                "classification_message": "Great! I've identified this as an idea. Let's explore it further and decide on next steps.",
-                "suggestion": "Would you like to generate a title for this idea?"
+                "classification_message": "Great! I've identified this as an idea. Let's explore it further.",
+                "suggestion": "It's a great idea! Would you like to proceed with generating a title for it?"
             }
         except Exception as e:
             logger.error(f"Error initializing idea block: {str(e)}")
@@ -105,15 +100,13 @@ class IdeaBlockHandler(BaseBlockHandler):
             # Fallback response
             return {
                 "identified_as": "idea",
-                "classification_message": "Great! I've identified this as an idea. Let's explore it further and decide on next steps.",
-                "suggestion": "Would you like to generate a title for this idea?"
+                "classification_message": "Great! I've identified this as an idea. Let's explore it further.",
+                "suggestion": "It's a great idea! Would you like to proceed with generating a title for it?"
             }
             
     def process_message(self, user_message, flow_status):
         """
         Process a user message for an idea block based on current flow status
-        
-        This method overrides the base implementation to use the standardized chat flow
         
         Args:
             user_message: Message from the user
@@ -122,5 +115,5 @@ class IdeaBlockHandler(BaseBlockHandler):
         Returns:
             dict: Response with results and next step suggestion
         """
-        # Use the base implementation that now follows the standardized flow
+        # Use the base implementation that follows the standardized flow
         return super().process_message(user_message, flow_status)

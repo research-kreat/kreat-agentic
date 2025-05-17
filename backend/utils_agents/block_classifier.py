@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def classify_user_input(user_input):
     """
-    Classifies the user input into one of the eight block types or identifies it as a greeting.
+    Classifies the user input into one of the eight block types with more concise messaging
     
     Returns:
         tuple: (block_type, confidence_score, is_greeting, classification_message)
@@ -33,7 +33,7 @@ def classify_user_input(user_input):
     
     # If it's a simple greeting with no substantive content, return general type with low confidence
     if is_greeting and len(clean_input.split()) <= 5:
-        return "general", 5, True, "Welcome to SparkBlocks. How can I help you today?"
+        return "general", 5, True, "What would you like to explore today?"
     
     try:
         # Initialize LLM
@@ -45,10 +45,8 @@ def classify_user_input(user_input):
         # Create classification agent
         classification_agent = Agent(
             role="Conversation Analyst",
-            goal="Understand what people are trying to discuss and provide appropriate classification messages",
-            backstory="""You're good at understanding what topics people want to talk about and providing helpful classification messages. 
-            When someone shares a thought, you can tell if they're talking about an idea, 
-            a problem, a possibility, or something else.""",
+            goal="Provide concise classifications of what people want to discuss",
+            backstory="""You understand what topics people want to talk about without over-explaining.""",
             verbose=True,
             llm=llm
         )
@@ -61,41 +59,29 @@ def classify_user_input(user_input):
             "{user_input}"
             
             Figure out which of these categories fits best:
-            - "idea" - They're sharing a creative concept or innovative solution
-            - "problem" - They're describing an issue or challenge that needs solving
-            - "possibility" - They're exploring a potential approach or solution
-            - "moonshot" - They're proposing an ambitious, potentially transformative idea
-            - "needs" - They're talking about requirements or necessities
-            - "opportunity" - They're pointing out a favorable circumstance or chance
-            - "concept" - They're outlining a structured solution or framework
-            - "outcome" - They're discussing results or end states
+            - "idea" - A creative concept or innovative solution
+            - "problem" - An issue or challenge that needs solving
+            - "possibility" - A potential approach or solution
+            - "moonshot" - An ambitious, transformative innovations
+            - "needs" - Requirements or necessities
+            - "opportunity" - A favorable circumstance or chance
+            - "concept" - A structured solution or framework
+            - "outcome" - Results or end states
             
-            IMPORTANT: If they're just saying hello (like "hello", "hi", "hey there") with no real content,
+            IMPORTANT: If they're just saying hello with no real content,
             mark this as a greeting.
             
-            Once you've determined the category, create a standardized classification message that follows this pattern:
-            
-            For problems:
-            "Great! Let's classify this problem related to [brief topic]. This will help us understand it better. Once classified, we can decide on the next steps."
-            
-            For ideas:
-            "Great! I've identified this as an idea related to [brief topic]. Let's explore it further. Once classified, we can proceed to generate a title that captures the essence of your idea!"
-            
-            For possibilities:
-            "Great! Let's explore this possibility related to [brief topic]. This will help us understand its potential. Once classified, we can decide on the next steps."
-            
-            For moonshots:
-            "Great! Let's classify this moonshot vision related to [brief topic]. This will help us understand its transformative potential. Once classified, we can decide on the next steps."
-            
-            For other types:
-            "Great! I've identified this as a [type] related to [brief topic]. Let's explore it further. Once classified, we can decide on the next steps."
+            For any classification, create a very brief, 1-2 sentence message that:
+            1. Acknowledges their input as the classified type
+            2. Doesn't over-explain or use phrases like "Let me help you"
+            3. Is conversational and natural, not instructional
             
             Your output must be EXACTLY in this JSON format:
             {{
                 "block_type": "one of the eight types listed above, or 'general' if it's just a greeting",
                 "confidence": "a number between 1-10 representing your confidence",
                 "is_greeting": "true or false - whether this is primarily just a greeting",
-                "classification_message": "Your standardized classification message following the pattern above"
+                "classification_message": "Your brief, conversational acknowledgment"
             }}
             """,
             agent=classification_agent,
@@ -127,18 +113,18 @@ def classify_user_input(user_input):
                 # Add default classification message if not provided
                 if not classification_message:
                     if is_greeting:
-                        classification_message = "Welcome to SparkBlocks. How can I help you today?"
+                        classification_message = "What would you like to explore today?"
                     else:
-                        classification_message = f"Great! I've identified this as a {block_type} type. Let's explore it further."
+                        classification_message = f"Great! I've identified this as a {block_type}."
                 
                 return block_type, confidence, is_greeting, classification_message
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse classification result: {json_str}")
-                return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."
+                return "problem", 5, False, "Great! Let's classify this problem."
         else:
             logger.error("No JSON found in classification result")
-            return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."
+            return "problem", 5, False, "Great! Let's classify this problem."
             
     except Exception as e:
         logger.error(f"Error in classification: {str(e)}")
-        return "problem", 5, False, "Let's classify this problem. This will help us understand it better. Once classified, we can decide on the next steps."
+        return "problem", 5, False, "Great! Let's classify this problem."
