@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BaseBlockHandler(ABC):
     """
-    Base class for all block handlers with improved conversational flow
+    Enhanced base class for all block handlers with improved conversation history utilization
     """
     
     def __init__(self, db, block_id, user_id):
@@ -49,6 +49,15 @@ class BaseBlockHandler(ABC):
             "classifications",
             "think_models"
         ]
+        
+        # Mark title and abstract as required
+        self.required_steps = ["title", "abstract"]
+        
+        # Maximum word count limits for specific steps
+        self.word_limits = {
+            "title": 30,
+            "abstract": 30
+        }
         
         # Basic step descriptions for internal use only (not for user-facing suggestions)
         self.step_descriptions = {
@@ -196,8 +205,8 @@ class BaseBlockHandler(ABC):
         Returns:
             dict: Response with results and next step suggestion
         """
-        # Get conversation history (limit to last 10 messages)
-        history = self._get_conversation_history(limit=10)
+        # Get conversation history (increased to get more context)
+        history = self._get_conversation_history(limit=20)
         
         # Check if the message is a greeting
         if self.is_greeting(user_message):
@@ -212,11 +221,22 @@ class BaseBlockHandler(ABC):
         current_step = self._get_current_step(flow_status)
         
         if not current_step:
-            return {"suggestion": "We've covered all the main aspects. What would you like to explore next?"}
+            # If all steps are completed, check if required steps are stored
+            missing_required = self._check_missing_required_steps(history)
+            if missing_required:
+                # If required steps are missing, set the first missing one as current
+                current_step = missing_required[0]
+                return self._generate_contextual_response(user_message, current_step, flow_status, history)
+            else:
+                return {"suggestion": "We've covered all the main aspects. What would you like to explore next?"}
             
         if is_confirmation:
             # User confirms to proceed - generate content for current step and suggestion for next step in one task
             result = self._generate_step_content_and_suggestion(current_step, user_message, flow_status, history)
+            
+            # Enforce word limits for specific steps
+            if current_step in self.word_limits:
+                result[current_step] = self._enforce_word_limit(result[current_step], self.word_limits[current_step])
             
             # Update flow status
             updated_flow_status = flow_status.copy()
@@ -229,6 +249,57 @@ class BaseBlockHandler(ABC):
         else:
             # User provided content or other input - respond contextually
             return self._generate_contextual_response(user_message, current_step, flow_status, history)
+    
+    def _check_missing_required_steps(self, history):
+        """
+        Check if any required steps are missing from the history
+        
+        Args:
+            history: Conversation history
+            
+        Returns:
+            list: Missing required steps
+        """
+        # Get all steps that have content in the history
+        completed_steps = set()
+        for item in history:
+            if item.get("role") == "assistant" and "result" in item:
+                result = item["result"]
+                for step in self.flow_steps:
+                    if step in result and result[step]:
+                        completed_steps.add(step)
+        
+        # Check which required steps are missing
+        missing = [step for step in self.required_steps if step not in completed_steps]
+        return missing
+    
+    def _enforce_word_limit(self, content, max_words):
+        """
+        Enforce word limit for specific steps
+        
+        Args:
+            content: Step content
+            max_words: Maximum number of words allowed
+            
+        Returns:
+            str: Content trimmed to word limit
+        """
+        if not content:
+            return content
+            
+        # Convert content to string if it's not already
+        if not isinstance(content, str):
+            content = str(content)
+            
+        # Split into words and limit
+        words = content.split()
+        if len(words) > max_words:
+            # Trim to max words and add ellipsis if trimmed
+            trimmed = " ".join(words[:max_words])
+            if len(words) > max_words:
+                trimmed += "..."
+            return trimmed
+        return content
     
     def _is_user_confirmation(self, message):
         """
@@ -444,6 +515,9 @@ class BaseBlockHandler(ABC):
         initial_input = block_data.get("initial_input", "")
         block_type = block_data.get("block_type", "general")
         
+        # Get previously generated content to provide as context
+        previous_content = self._get_previous_content(history)
+        
         # Create an agent for contextual responses
         agent = Agent(
             role="Conversation Guide",
@@ -459,6 +533,8 @@ class BaseBlockHandler(ABC):
             Topic: "{initial_input}"
             Block Type: {block_type}
             Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
+            
+            Previous Content: {self._format_previous_content_for_prompt(previous_content)}
             
             Recent conversation:
             {self._format_history_for_prompt(history)}
@@ -547,7 +623,12 @@ class BaseBlockHandler(ABC):
 
     def _get_current_step(self, flow_status):
         """Get the current step based on flow status - strictly following the order"""
-        # Ensure we're following the exact order defined in self.flow_steps
+        # First, check for any required steps that haven't been completed yet
+        for step in self.required_steps:
+            if not flow_status.get(step, False):
+                return step
+                
+        # Then follow the standard order for remaining steps
         for step in self.flow_steps:
             if not flow_status.get(step, False):
                 return step
@@ -564,7 +645,7 @@ class BaseBlockHandler(ABC):
                     return step
         return None
     
-    def _get_conversation_history(self, limit=10):
+    def _get_conversation_history(self, limit=20):
         """
         Get the conversation history for context
         
@@ -587,17 +668,38 @@ class BaseBlockHandler(ABC):
             if role and content:
                 formatted.append(f"{role}: {content}")
         
-        return "\n".join(formatted[-5:])  # Only use last 5 for prompt context
+        return "\n".join(formatted[-10:])  # Use last 10 for prompt context
+    
+    def _format_previous_content_for_prompt(self, previous_content):
+        """Format previous content for inclusion in prompts"""
+        formatted = []
+        for step, content in previous_content.items():
+            if step in self.flow_steps:
+                if isinstance(content, (dict, list)):
+                    try:
+                        formatted.append(f"{step.capitalize()}: {json.dumps(content, ensure_ascii=False)[:150]}...")
+                    except:
+                        formatted.append(f"{step.capitalize()}: {str(content)[:150]}...")
+                else:
+                    formatted.append(f"{step.capitalize()}: {str(content)[:150]}...")
+        
+        return "\n".join(formatted)
     
     def _prepare_step_context(self, step, initial_input, previous_content, block_type):
-        """Prepare context for step content generation"""
+        """Prepare context for step content generation with previous title and abstract"""
         context = f"Topic: \"{initial_input}\"\nBlock Type: {block_type}\n\n"
         
-        # Add previously generated content
+        # Add title and abstract first if they exist
+        priority_steps = ["title", "abstract"]
+        for priority_step in priority_steps:
+            if priority_step in previous_content:
+                context += f"{priority_step.capitalize()}: {previous_content[priority_step]}\n\n"
+        
+        # Add other previously generated content
         if previous_content:
-            context += "Previously generated content:\n"
+            context += "Other previously generated content:\n"
             for prev_step, content in previous_content.items():
-                if prev_step in self.flow_steps:
+                if prev_step not in priority_steps and prev_step in self.flow_steps:
                     if isinstance(content, (dict, list)):
                         context += f"- {prev_step}: {json.dumps(content, ensure_ascii=False)[:100]}...\n"
                     else:
@@ -690,7 +792,7 @@ class BaseBlockHandler(ABC):
                 
                 # Add each step's content to the dictionary
                 for step in self.flow_steps:
-                    if step in result:
+                    if step in result and result[step]:
                         content[step] = result[step]
         
         return content
