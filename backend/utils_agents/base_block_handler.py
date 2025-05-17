@@ -49,7 +49,7 @@ class BaseBlockHandler(ABC):
             "think_models"
         ]
         
-        # Step descriptions for user-facing messages - concise, prompt-like, less explanatory
+        # Basic step descriptions for internal use only (not for user-facing suggestions)
         self.step_descriptions = {
             "title": "a compelling title",
             "abstract": "a clear summary",
@@ -225,12 +225,8 @@ class BaseBlockHandler(ABC):
             # Get next step
             next_step = self._get_next_step(updated_flow_status)
             
-            # Following the chat flow, generate a concise transition to the next step
-            if next_step:
-                next_step_description = self.step_descriptions.get(next_step, next_step.replace("_", " "))
-                suggestion = f"Let's generate {next_step_description}."
-            else:
-                suggestion = "Great! We've completed all the steps. What would you like to explore further?"
+            # Generate a dynamic suggestion for the next step
+            suggestion = self._generate_next_step_suggestion(current_step, next_step)
             
             # Prepare response with formatted content
             content = result if isinstance(result, dict) else self._format_step_content(current_step, result)
@@ -246,6 +242,100 @@ class BaseBlockHandler(ABC):
         else:
             # User provided content or other input - respond contextually
             return self._generate_contextual_response(user_message, current_step, flow_status, history)
+    
+    def _generate_next_step_suggestion(self, current_step, next_step):
+        """
+        Generate a dynamic suggestion for the next step using LLM
+        
+        Args:
+            current_step: The step that was just completed
+            next_step: The next step to suggest
+            
+        Returns:
+            str: A dynamically generated suggestion
+        """
+        # If there is no next step, return a completion message
+        if not next_step:
+            return "Great! We've completed all the steps. What would you like to explore further?"
+        
+        # Get block data to provide context
+        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
+        initial_input = block_data.get("initial_input", "")
+        block_type = block_data.get("block_type", "general")
+        
+        # Create agent for suggestion generation
+        agent = Agent(
+            role="Creative Process Guide",
+            goal="Generate natural, conversational transitions between creative thinking steps",
+            backstory="You help guide creative thinking with natural language transitions that feel like a conversation, not instructions.",
+            verbose=True,
+            llm=self.llm
+        )
+        
+        # Basic descriptions for context only
+        step_descriptions = {
+            "title": "compelling title",
+            "abstract": "concise summary",
+            "stakeholders": "key people or groups involved",
+            "tags": "relevant keywords or categories",
+            "assumptions": "underlying beliefs or premises",
+            "constraints": "limitations or restrictions",
+            "risks": "potential challenges or issues",
+            "areas": "related fields or domains",
+            "impact": "key benefits and outcomes",
+            "connections": "related concepts or ideas",
+            "classifications": "ways to categorize this concept",
+            "think_models": "thinking frameworks that apply"
+        }
+        
+        current_desc = step_descriptions.get(current_step, current_step.replace("_", " "))
+        next_desc = step_descriptions.get(next_step, next_step.replace("_", " "))
+        
+        # Create task for suggestion generation
+        task = Task(
+            description=f"""
+            Topic: "{initial_input}"
+            Block Type: {block_type}
+            Just completed: {current_step} ({current_desc})
+            Next step: {next_step} ({next_desc})
+            
+            Generate a natural, conversational transition to suggest moving to the next step.
+            
+            Guidelines:
+            - Be brief (1-2 sentences max)
+            - Sound natural and conversational, not like instructions
+            - Don't use phrases like "Now, let's..." or "Let's proceed to..."
+            - Don't explain what we're doing or why
+            - Don't use bullet points or numbered lists
+            - Make it feel like a natural flow of conversation
+            
+            Examples of good transitions:
+            - "What about generating a title that captures the essence of this concept?"
+            - "Maybe we should identify the key stakeholders involved?"
+            - "Shall we explore the potential impact this could have?"
+            
+            Your transition should sound like something a helpful friend would say, not like a process instruction.
+            """,
+            agent=agent,
+            expected_output="A natural transition suggestion"
+        )
+        
+        # Execute task
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=True
+        )
+        
+        try:
+            result = crew.kickoff()
+            return result.raw.strip()
+        except Exception as e:
+            logger.error(f"Error generating transition suggestion: {str(e)}")
+            # Fallback to a simple suggestion using the step description
+            fallback_desc = self.step_descriptions.get(next_step, next_step.replace("_", " "))
+            return f"Let's generate {fallback_desc}."
     
     def _is_user_confirmation(self, message):
         """
@@ -282,9 +372,9 @@ class BaseBlockHandler(ABC):
     def _format_step_content(self, step, content):
         """Format content based on the step type for standardized presentation"""
         if step == "title":
-            return f"Title:\n{content}"
+            return f"{content}"
         elif step == "abstract":
-            return f"Abstract:\n{content}"
+            return f"{content}"
         else:
             # For structured data, leave as is
             return content
@@ -381,7 +471,7 @@ class BaseBlockHandler(ABC):
             "title": """
             Create a clear, concise title (5-10 words) that captures the essence of this concept.
             The title should be memorable and specific.
-            Return only the title text, without any explanation.
+            Return only the title text without double quotation, without any explanation.
             """,
             
             "abstract": """
@@ -559,7 +649,7 @@ class BaseBlockHandler(ABC):
             
             if is_related_to_current_step:
                 # If user's message is related to current step, guide them to continue
-                suggestion = f"Ready to generate {self.step_descriptions.get(current_step, current_step)}?"
+                suggestion = result.raw.strip()
             else:
                 # If not related, use the generated response
                 suggestion = result.raw.strip()
