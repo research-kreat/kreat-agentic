@@ -47,10 +47,6 @@ export default function BlockSidebar({ onBlockSelect, blockType = 'general' }) {
     e.stopPropagation(); // Prevent block selection
     e.preventDefault(); // Prevent navigation
 
-    if (!confirm("Are you sure you want to delete this block? This cannot be undone.")) {
-      return;
-    }
-
     try {
       await api.deleteBlock({ blockId, userId });
       removeBlock(blockId);

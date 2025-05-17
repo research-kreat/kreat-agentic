@@ -206,7 +206,6 @@ class BaseBlockHandler(ABC):
             return self.handle_greeting(user_message, block_type)
         
         # Determine if user is confirming to proceed with current step
-        # This matches the chat flow where any confirmation ("ok", "yes", etc.) moves to the next step
         is_confirmation = self._is_user_confirmation(user_message)
         
         # Find the current step based on flow status
@@ -216,67 +215,20 @@ class BaseBlockHandler(ABC):
             return {"suggestion": "We've covered all the main aspects. What would you like to explore next?"}
             
         if is_confirmation:
-            # User confirms to proceed - generate content for current step
-            result = self._generate_step_content(current_step, user_message, flow_status, history)
+            # User confirms to proceed - generate content for current step and suggestion for next step in one task
+            result = self._generate_step_content_and_suggestion(current_step, user_message, flow_status, history)
             
             # Update flow status
             updated_flow_status = flow_status.copy()
             updated_flow_status[current_step] = True
             
-            # Get next step
-            next_step = self._get_next_step(updated_flow_status)
+            # Add updated flow status to the response
+            result["updated_flow_status"] = updated_flow_status
             
-            # Generate a dynamic suggestion for the next step
-            suggestion = self._generate_next_step_suggestion(current_step, next_step)
-            
-            # Prepare response with formatted content
-            content = result if isinstance(result, dict) else self._format_step_content(current_step, result)
-            
-            # Prepare response with suggestion included in JSON format
-            response = {
-                current_step: content,
-                "suggestion": suggestion,
-                "updated_flow_status": updated_flow_status
-            }
-            
-            return response
+            return result
         else:
             # User provided content or other input - respond contextually
             return self._generate_contextual_response(user_message, current_step, flow_status, history)
-    
-    def _generate_next_step_suggestion(self, current_step, next_step):
-        """
-        Generate a dynamic suggestion for the next step - simplified for JSON response
-        
-        Args:
-            current_step: The step that was just completed
-            next_step: The next step to suggest
-            
-        Returns:
-            str: A dynamically generated suggestion
-        """
-        # If there is no next step, return a completion message
-        if not next_step:
-            return "Great! We've completed all the steps. What would you like to explore further?"
-        
-        # Simple suggestion template to maintain consistency
-        step_action_prompts = {
-            "title": "generate a title",
-            "abstract": "create an abstract",
-            "stakeholders": "identify the stakeholders",
-            "tags": "add tags and categories",
-            "assumptions": "list the assumptions",
-            "constraints": "identify any constraints",
-            "risks": "what risks might exist",
-            "areas": "explore related areas",
-            "impact": "describe the potential impact",
-            "connections": "discover connections to other ideas",
-            "classifications": "classify this concept",
-            "think_models": "apply thinking models"
-        }
-        
-        prompt = step_action_prompts.get(next_step, f"work on the {next_step}")
-        return f"Would you like to {prompt}?"
     
     def _is_user_confirmation(self, message):
         """
@@ -310,28 +262,18 @@ class BaseBlockHandler(ABC):
                 
         return False
     
-    def _format_step_content(self, step, content):
-        """Format content based on the step type for standardized presentation"""
-        if step == "title":
-            return f"{content}"
-        elif step == "abstract":
-            return f"{content}"
-        else:
-            # For structured data, leave as is
-            return content
-    
-    def _generate_step_content(self, step, user_message, flow_status, history):
+    def _generate_step_content_and_suggestion(self, current_step, user_message, flow_status, history):
         """
-        Generate content for the current step
+        Generate both content for the current step and suggestion for the next step in a single task
         
         Args:
-            step: Current step in the flow
+            current_step: Current step in the flow
             user_message: User's message
             flow_status: Current flow status
             history: Conversation history
             
         Returns:
-            Content for the current step
+            dict: Response with results and next step suggestion
         """
         # Get the initial input from the flow data
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
@@ -341,38 +283,53 @@ class BaseBlockHandler(ABC):
         # Get previously generated content
         previous_content = self._get_previous_content(history)
         
+        # Find the next step
+        next_status = flow_status.copy()
+        next_status[current_step] = True
+        next_step = self._get_next_step(next_status)
+        next_step_desc = self.step_descriptions.get(next_step, next_step) if next_step else "the next aspect"
+        
         # Create agent for content generation
         agent = Agent(
             role="Creative Thinking Partner",
-            goal=f"Generate {self.step_descriptions.get(step, step)} for the user's {block_type}",
+            goal=f"Generate {self.step_descriptions.get(current_step, current_step)} for the user's {block_type}",
             backstory="You help people develop innovations through structured thinking without being verbose.",
             verbose=True,
             llm=self.llm
         )
         
         # Prepare prompt context
-        context = self._prepare_step_context(step, initial_input, previous_content, block_type)
+        context = self._prepare_step_context(current_step, initial_input, previous_content, block_type)
         
         # Create task for content generation
         task = Task(
             description=f"""
             {context}
             
-            Generate {self.step_descriptions.get(step, step)} for this {block_type}.
+            You need to generate two pieces of information:
             
-            Guidelines for "{step}":
-            {self._get_step_guidelines(step)}
+            1. {self.step_descriptions.get(current_step, current_step)} for this {block_type}
+            
+            Guidelines for "{current_step}":
+            {self._get_step_guidelines(current_step)}
+            
+            2. A brief suggestion for the next step ("{next_step if next_step else 'completing'}")
+            This should be a simple question asking if the user wants to continue.
+            
+            Format your response as JSON:
+            {{
+                "{current_step}": // Content for the current step (formatted according to the guidelines)
+                "suggestion": // A simple 1-sentence question like "Would you like to [action for next step]?"
+            }}
             
             Make your response:
             - Clear and focused
             - Relevant to the topic
             - Following the specified format
-            - NO explanations or commentary
-            
-            Generate ONLY the content for {step}, nothing more.
+            - Include ONLY these two elements - no explanations or commentary
             """,
             agent=agent,
-            expected_output=f"Content for {step}"
+            expected_output=f"JSON with {current_step} content and next step suggestion"
         )
         
         # Execute task
@@ -385,10 +342,252 @@ class BaseBlockHandler(ABC):
         
         try:
             result = crew.kickoff()
-            return self._parse_step_result(step, result.raw)
+            
+            # Parse result as JSON
+            json_match = re.search(r'({.*})', result.raw, re.DOTALL)
+            if json_match:
+                try:
+                    result_data = json.loads(json_match.group(1))
+                    
+                    # Format the current step content
+                    current_step_content = result_data.get(current_step)
+                    if current_step_content:
+                        result_data[current_step] = self._parse_step_result(current_step, json.dumps(current_step_content) if isinstance(current_step_content, (list, dict)) else current_step_content)
+                    
+                    # Ensure suggestion is present
+                    if "suggestion" not in result_data:
+                        if next_step:
+                            result_data["suggestion"] = f"Would you like to generate {next_step_desc}?"
+                        else:
+                            result_data["suggestion"] = "Great! We've completed all the steps. What would you like to explore next?"
+                    
+                    return result_data
+                    
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON response: {result.raw}")
+            
+            # Fallback if JSON parsing fails
+            current_step_content = self._parse_step_result(current_step, result.raw)
+            suggestion = f"Would you like to generate {next_step_desc}?" if next_step else "Great! We've completed all the steps. What would you like to explore next?"
+            
+            return {
+                current_step: current_step_content,
+                "suggestion": suggestion
+            }
+            
         except Exception as e:
-            logger.error(f"Error generating content for {step}: {str(e)}")
-            return f"I'm having trouble generating {self.step_descriptions.get(step, step)}. Let's try a different approach."
+            logger.error(f"Error generating content and suggestion: {str(e)}")
+            
+            # Fallback response
+            return {
+                current_step: f"I'm having trouble generating {self.step_descriptions.get(current_step, current_step)}. Let's try a different approach.",
+                "suggestion": f"Would you like to try generating {next_step_desc}?" if next_step else "What would you like to explore next?"
+            }
+    
+    def _parse_step_result(self, step, raw_result):
+        """Parse the result based on the step type"""
+        # For structured data steps, try to extract JSON if present
+        structured_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
+                           "areas", "impact", "connections", "classifications", "think_models"]
+        
+        if step in structured_steps:
+            # Try to find JSON in the result
+            json_match = re.search(r'({.*}|\[.*\])', raw_result, re.DOTALL)
+            
+            if json_match:
+                try:
+                    return json.loads(json_match.group(0))
+                except json.JSONDecodeError:
+                    pass
+                    
+            # If JSON parsing fails or no JSON found, return formatted list
+            return self._format_bullet_list(raw_result)
+        else:
+            # For title and abstract, return as plain text
+            return raw_result.strip()
+    
+    def _format_bullet_list(self, text):
+        """Format text as a bullet list if it contains bullet points"""
+        # Split by lines
+        lines = text.strip().split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            # Clean up bullet points for consistency
+            line = line.strip()
+            if line.startswith('•') or line.startswith('-') or line.startswith('*'):
+                # Remove the bullet character and space
+                cleaned_line = line[1:].strip()
+                formatted_lines.append(cleaned_line)
+            elif line and not line.startswith('#') and not line.endswith(':'):
+                # Non-empty lines that aren't headers or list intros
+                formatted_lines.append(line)
+        
+        return formatted_lines if formatted_lines else text.strip()
+    
+    def _generate_contextual_response(self, user_message, current_step, flow_status, history):
+        """
+        Generate a contextual response for user input that's not a direct confirmation
+        With more concise, conversational style
+        
+        Args:
+            user_message: User's message
+            current_step: Current step in the flow
+            flow_status: Current flow status
+            history: Conversation history
+            
+        Returns:
+            dict: Response with suggestion
+        """
+        # Get the initial input
+        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
+        initial_input = block_data.get("initial_input", "")
+        block_type = block_data.get("block_type", "general")
+        
+        # Create an agent for contextual responses
+        agent = Agent(
+            role="Conversation Guide",
+            goal="Guide users through the creative thinking process",
+            backstory="You help users develop innovations with concise, clear responses.",
+            verbose=True,
+            llm=self.llm
+        )
+        
+        # Create task for generating a response
+        task = Task(
+            description=f"""
+            Topic: "{initial_input}"
+            Block Type: {block_type}
+            Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
+            
+            Recent conversation:
+            {self._format_history_for_prompt(history)}
+            
+            User's latest message: "{user_message}"
+            
+            Create a brief, natural response in JSON format that suggests generating content for the current step.
+            
+            Format your response as:
+            {{
+                "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step"
+            }}
+            
+            Your response should be:
+            - Conversational, 1-2 sentences maximum
+            - Ask if they'd like to proceed with generating {self.step_descriptions.get(current_step, current_step)}
+            - Use NO bullet points or numbered lists
+            - Use NO explanations or justifications
+            - NEVER explain what you're doing or what will happen next
+            """,
+            agent=agent,
+            expected_output="JSON with suggestion"
+        )
+        
+        # Execute the task
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=True
+        )
+        
+        try:
+            result = crew.kickoff()
+            
+            # Try to parse JSON from the result
+            json_match = re.search(r'({.*})', result.raw, re.DOTALL)
+            if json_match:
+                try:
+                    result_data = json.loads(json_match.group(1))
+                    # Ensure suggestion is present
+                    if "suggestion" not in result_data:
+                        result_data["suggestion"] = f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}?"
+                    
+                    return result_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON response: {result.raw}")
+            
+            # Fallback if JSON parsing fails
+            return {
+                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}?"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating contextual response: {str(e)}")
+            return {
+                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}?"
+            }
+    
+    def _is_related_to_current_step(self, user_message, current_step, initial_input):
+        """Simple check if user message seems related to current step"""
+        step_keywords = {
+            "title": ["title", "name", "heading", "call it"],
+            "abstract": ["abstract", "summary", "overview", "describe"],
+            "stakeholders": ["stakeholders", "people", "users", "groups", "involved"],
+            "tags": ["tags", "keywords", "categories", "label", "type"],
+            "assumptions": ["assumptions", "assume", "premise", "presuppose"],
+            "constraints": ["constraints", "limitations", "restrictions", "limits"],
+            "risks": ["risks", "problems", "challenges", "issues", "concerns"],
+            "areas": ["areas", "domains", "fields", "subjects", "related to"],
+            "impact": ["impact", "effects", "benefits", "results", "outcomes"],
+            "connections": ["connections", "links", "related", "similar", "connected"],
+            "classifications": ["classifications", "categories", "types", "classes"],
+            "think_models": ["thinking", "models", "frameworks", "approaches", "perspectives"]
+        }
+        
+        # Get keywords for current step
+        current_keywords = step_keywords.get(current_step, [current_step])
+        
+        # Check if any keyword appears in the user message
+        for keyword in current_keywords:
+            if keyword in user_message.lower():
+                return True
+        
+        return False
+
+    def _get_current_step(self, flow_status):
+        """Get the current step based on flow status - strictly following the order"""
+        # Ensure we're following the exact order defined in self.flow_steps
+        for step in self.flow_steps:
+            if not flow_status.get(step, False):
+                return step
+        return None
+    
+    def _get_next_step(self, flow_status):
+        """Get the next step after the current one - strictly following the order"""
+        current_step = None
+        for step in self.flow_steps:
+            if not flow_status.get(step, False):
+                if current_step is None:
+                    current_step = step
+                else:
+                    return step
+        return None
+    
+    def _get_conversation_history(self, limit=10):
+        """
+        Get the conversation history for context
+        
+        Args:
+            limit: Maximum number of messages to retrieve
+        """
+        history = list(self.history_collection.find(
+            {"block_id": self.block_id, "user_id": self.user_id}
+        ).sort("created_at", -1).limit(limit))
+        
+        # Reverse to get chronological order
+        return list(reversed(history))
+    
+    def _format_history_for_prompt(self, history):
+        """Format conversation history for inclusion in prompts"""
+        formatted = []
+        for msg in history:
+            role = msg.get("role", "").upper()
+            content = msg.get("message", "")
+            if role and content:
+                formatted.append(f"{role}: {content}")
+        
+        return "\n".join(formatted[-5:])  # Only use last 5 for prompt context
     
     def _prepare_step_context(self, step, initial_input, previous_content, block_type):
         """Prepare context for step content generation"""
@@ -480,214 +679,6 @@ class BaseBlockHandler(ABC):
         }
         
         return guidelines.get(step, f"Generate appropriate content for {step}")
-    
-    def _parse_step_result(self, step, raw_result):
-        """Parse the result based on the step type"""
-        # For structured data steps, try to extract JSON if present
-        structured_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
-                           "areas", "impact", "connections", "classifications", "think_models"]
-        
-        if step in structured_steps:
-            # Try to find JSON in the result
-            json_match = re.search(r'({.*}|\[.*\])', raw_result, re.DOTALL)
-            
-            if json_match:
-                try:
-                    return json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    pass
-                    
-            # If JSON parsing fails or no JSON found, return formatted list
-            return self._format_bullet_list(raw_result)
-        else:
-            # For title and abstract, return as plain text
-            return raw_result.strip()
-    
-    def _format_bullet_list(self, text):
-        """Format text as a bullet list if it contains bullet points"""
-        # Split by lines
-        lines = text.strip().split('\n')
-        formatted_lines = []
-        
-        for line in lines:
-            # Clean up bullet points for consistency
-            line = line.strip()
-            if line.startswith('•') or line.startswith('-') or line.startswith('*'):
-                # Remove the bullet character and space
-                cleaned_line = line[1:].strip()
-                formatted_lines.append(cleaned_line)
-            elif line and not line.startswith('#') and not line.endswith(':'):
-                # Non-empty lines that aren't headers or list intros
-                formatted_lines.append(line)
-        
-        return formatted_lines if formatted_lines else text.strip()
-    
-    def _generate_contextual_response(self, user_message, current_step, flow_status, history):
-        """
-        Generate a contextual response for user input that's not a direct confirmation
-        With more concise, conversational style
-        
-        Args:
-            user_message: User's message
-            current_step: Current step in the flow
-            flow_status: Current flow status
-            history: Conversation history
-            
-        Returns:
-            dict: Response with suggestion
-        """
-        # Get the initial input
-        block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
-        initial_input = block_data.get("initial_input", "")
-        block_type = block_data.get("block_type", "general")
-        
-        # Create an agent for contextual responses
-        agent = Agent(
-            role="Conversation Guide",
-            goal="Guide users through the creative thinking process",
-            backstory="You help users develop innovations with concise, clear responses.",
-            verbose=True,
-            llm=self.llm
-        )
-        
-        # Create task for generating a response
-        task = Task(
-            description=f"""
-            Topic: "{initial_input}"
-            Block Type: {block_type}
-            Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
-            
-            Recent conversation:
-            {self._format_history_for_prompt(history)}
-            
-            User's latest message: "{user_message}"
-            
-            Create a brief, natural response that:
-            - Is conversational, 1-2 sentences maximum
-            - Suggests generating content for the current step ({current_step})
-            - Asks if they'd like to proceed (without being wordy)
-            - Uses NO bullet points or numbered lists
-            - Uses NO explanations or justifications
-            - NEVER explains what you're doing or what will happen next
-            """,
-            agent=agent,
-            expected_output="A brief contextual response"
-        )
-        
-        # Execute the task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
-        try:
-            result = crew.kickoff()
-            
-            # Extract any potential updated status or step suggestion from the response
-            is_related_to_current_step = self._is_related_to_current_step(user_message, current_step, initial_input)
-            
-            if is_related_to_current_step:
-                # If user's message is related to current step, guide them to continue
-                suggestion = result.raw.strip()
-            else:
-                # If not related, use the generated response
-                suggestion = result.raw.strip()
-            
-            return {
-                "suggestion": suggestion
-            }
-        except Exception as e:
-            logger.error(f"Error generating contextual response: {str(e)}")
-            return {
-                "suggestion": f"Would you like to {self.step_descriptions.get(current_step, current_step)}?"
-            }
-    
-    def _is_related_to_current_step(self, user_message, current_step, initial_input):
-        """Simple check if user message seems related to current step"""
-        step_keywords = {
-            "title": ["title", "name", "heading", "call it"],
-            "abstract": ["abstract", "summary", "overview", "describe"],
-            "stakeholders": ["stakeholders", "people", "users", "groups", "involved"],
-            "tags": ["tags", "keywords", "categories", "label", "type"],
-            "assumptions": ["assumptions", "assume", "premise", "presuppose"],
-            "constraints": ["constraints", "limitations", "restrictions", "limits"],
-            "risks": ["risks", "problems", "challenges", "issues", "concerns"],
-            "areas": ["areas", "domains", "fields", "subjects", "related to"],
-            "impact": ["impact", "effects", "benefits", "results", "outcomes"],
-            "connections": ["connections", "links", "related", "similar", "connected"],
-            "classifications": ["classifications", "categories", "types", "classes"],
-            "think_models": ["thinking", "models", "frameworks", "approaches", "perspectives"]
-        }
-        
-        # Get keywords for current step
-        current_keywords = step_keywords.get(current_step, [current_step])
-        
-        # Check if any keyword appears in the user message
-        for keyword in current_keywords:
-            if keyword in user_message.lower():
-                return True
-        
-        return False
-
-    def _get_current_step(self, flow_status):
-        """Get the current step based on flow status - strictly following the order"""
-        # Ensure we're following the exact order defined in self.flow_steps
-        for step in self.flow_steps:
-            if not flow_status.get(step, False):
-                return step
-        return None
-    
-    def _get_next_step(self, flow_status):
-        """Get the next step after the current one - strictly following the order"""
-        current_step = None
-        next_step = None
-        
-        # Find the current step
-        for step in self.flow_steps:
-            if not flow_status.get(step, False):
-                current_step = step
-                break
-        
-        if current_step is None:
-            return None  # All steps completed
-        
-        # Find the next step
-        found_current = False
-        for step in self.flow_steps:
-            if found_current and not flow_status.get(step, False):
-                next_step = step
-                break
-            if step == current_step:
-                found_current = True
-                
-        return next_step
-    
-    def _get_conversation_history(self, limit=10):
-        """
-        Get the conversation history for context
-        
-        Args:
-            limit: Maximum number of messages to retrieve
-        """
-        history = list(self.history_collection.find(
-            {"block_id": self.block_id, "user_id": self.user_id}
-        ).sort("created_at", -1).limit(limit))
-        
-        # Reverse to get chronological order
-        return list(reversed(history))
-    
-    def _format_history_for_prompt(self, history):
-        """Format conversation history for inclusion in prompts"""
-        formatted = []
-        for msg in history:
-            role = msg.get("role", "").upper()
-            content = msg.get("message", "")
-            if role and content:
-                formatted.append(f"{role}: {content}")
-        
-        return "\n".join(formatted[-5:])  # Only use last 5 for prompt context
     
     def _get_previous_content(self, history):
         """Extract previously generated content from history"""
