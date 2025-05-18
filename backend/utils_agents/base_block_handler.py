@@ -33,8 +33,7 @@ class BaseBlockHandler(ABC):
             temperature=0.7
         )
         
-        # Standard flow steps for all block types (following chat-flow.txt)
-        # Ensure this order is strictly followed
+        # Standard flow steps for all block types
         self.flow_steps = [
             "title",
             "abstract",
@@ -62,8 +61,8 @@ class BaseBlockHandler(ABC):
         
         # Basic step descriptions for internal use only
         self.step_descriptions = {
-            "title": "a compelling title (max 30 words)",
-            "abstract": "a clear summary (max 200 words)",
+            "title": "a compelling title",
+            "abstract": "a clear summary",
             "stakeholders": "key people or groups involved",
             "tags": "relevant keywords",
             "assumptions": "underlying assumptions",
@@ -75,6 +74,19 @@ class BaseBlockHandler(ABC):
             "classifications": "categorization schemes",
             "think_models": "thinking frameworks"
         }
+    
+    def _sanitize_user_input(self, text):
+        """Sanitize user input to avoid content policy violations"""
+        if not text:
+            return ""
+        
+        # Replace profanity with neutral terms
+        profanity_words = ["fuck", "shit", "ass", "damn", "bitch"]
+        sanitized = text.lower()
+        for word in profanity_words:
+            sanitized = re.sub(r'\b' + word + r'\w*\b', "[inappropriate]", sanitized, flags=re.IGNORECASE)
+        
+        return sanitized
     
     def is_greeting(self, user_input):
         """Check if the user input is a greeting"""
@@ -125,9 +137,11 @@ class BaseBlockHandler(ABC):
                 llm=self.llm
             )
             
+            sanitized_input = self._sanitize_user_input(user_input)
+            
             task = Task(
                 description=f"""
-                The user has greeted you with: "{user_input}"
+                The user has greeted you with: "{sanitized_input}"
                 
                 {block_context}
                 
@@ -206,14 +220,14 @@ class BaseBlockHandler(ABC):
     
     def process_message(self, user_message, flow_status):
         """Process user message based on current flow status"""
-        # Get conversation history
-        history = self._get_conversation_history(limit=20)
-        
         # Check if the message is a greeting
         if self.is_greeting(user_message):
             block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
             block_type = block_data.get("block_type", "general")
             return self.handle_greeting(user_message, block_type)
+        
+        # Get conversation history
+        history = self._get_conversation_history(limit=20)
         
         # Determine if user is confirming to proceed with current step
         is_confirmation = self._is_user_confirmation(user_message)
@@ -254,6 +268,9 @@ class BaseBlockHandler(ABC):
             
             # Add updated flow status to the response
             result["updated_flow_status"] = updated_flow_status
+            
+            # Important: Add the current step being completed to ensure UI displays correctly
+            result["current_step_completed"] = current_step
             
             return result
         else:
@@ -322,7 +339,16 @@ class BaseBlockHandler(ABC):
         
         # Prepare prompt context
         context = self._prepare_step_context(current_step, initial_input, previous_content, block_type)
-        history_context = self._format_history_for_prompt(history)
+        
+        # Sanitize conversation history
+        sanitized_history = []
+        for msg in history[-10:]:  # Use only the last 10 messages
+            role = msg.get("role", "").upper()
+            content = self._sanitize_user_input(msg.get("message", ""))
+            if role and content:
+                sanitized_history.append(f"{role}: {content}")
+        
+        history_context = "\n".join(sanitized_history)
         
         try:
             # Create agent for content generation
@@ -357,6 +383,11 @@ class BaseBlockHandler(ABC):
                     "{current_step}": // Content for the current step (formatted according to the guidelines)
                     "suggestion": // A simple 1-sentence question like "Would you like to [action for next step]?"
                 }}
+                
+                IMPORTANT SAFETY GUIDELINES:
+                - Focus only on the specific user concept
+                - Avoid any potentially controversial content
+                - Keep all content neutral and concept-focused
                 
                 Make your response:
                 - Clear and focused
@@ -493,6 +524,9 @@ class BaseBlockHandler(ABC):
             title_context = f"\nTitle: {previous_content['title']}" if 'title' in previous_content else ""
             abstract_context = f"\nAbstract: {previous_content['abstract']}" if 'abstract' in previous_content else ""
             
+            # Sanitize user message
+            sanitized_message = self._sanitize_user_input(user_message)
+            
             # Create task for generating a response
             task = Task(
                 description=f"""
@@ -500,12 +534,7 @@ class BaseBlockHandler(ABC):
                 Block Type: {block_type}{title_context}{abstract_context}
                 Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
                 
-                Previous Content: {self._format_previous_content_for_prompt(previous_content)}
-                
-                Recent conversation:
-                {self._format_history_for_prompt(history)}
-                
-                User's latest message: "{user_message}"
+                User's latest message: "{sanitized_message}"
                 
                 Create a brief, natural response in JSON format that suggests generating content for the current step.
                 
@@ -513,6 +542,11 @@ class BaseBlockHandler(ABC):
                 {{
                     "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step"
                 }}
+                
+                IMPORTANT SAFETY GUIDELINES:
+                - Focus only on the specific concept
+                - Avoid any potentially controversial content
+                - Keep all content neutral and concept-focused
                 
                 Your response should be:
                 - Conversational, 1-2 sentences maximum
@@ -546,6 +580,9 @@ class BaseBlockHandler(ABC):
                         title_ref = f" for '{previous_content['title']}'" if 'title' in previous_content else ""
                         result_data["suggestion"] = f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?"
                     
+                    # Add the current step being addressed for UI display
+                    result_data["current_step"] = current_step
+                    
                     return result_data
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse JSON response: {result.raw}")
@@ -553,14 +590,16 @@ class BaseBlockHandler(ABC):
             # Fallback if JSON parsing fails
             title_ref = f" for '{previous_content['title']}'" if 'title' in previous_content else ""
             return {
-                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?"
+                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?",
+                "current_step": current_step
             }
             
         except Exception as e:
             logger.error(f"Error generating contextual response: {str(e)}")
             title_ref = f" for '{previous_content['title']}'" if 'title' in previous_content else ""
             return {
-                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?"
+                "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?",
+                "current_step": current_step
             }
     
     def _get_current_step(self, flow_status, previous_content):
@@ -610,17 +649,6 @@ class BaseBlockHandler(ABC):
         
         # Reverse to get chronological order
         return list(reversed(history))
-    
-    def _format_history_for_prompt(self, history):
-        """Format conversation history for inclusion in prompts"""
-        formatted = []
-        for msg in history:
-            role = msg.get("role", "").upper()
-            content = msg.get("message", "")
-            if role and content:
-                formatted.append(f"{role}: {content}")
-        
-        return "\n".join(formatted[-10:])  # Use last 10 for prompt context
     
     def _format_previous_content_for_prompt(self, previous_content):
         """Format previous content for inclusion in prompts"""
@@ -743,6 +771,7 @@ class BaseBlockHandler(ABC):
         return guidelines.get(step, f"Generate appropriate content for {step}")
     
     def _get_previous_content(self, history):
+        """Get previously generated content from conversation history"""
         content = {}
         
         # Process history in reverse chronological order to get the most recent content first

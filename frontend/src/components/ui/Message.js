@@ -129,6 +129,12 @@ export default function Message({ message, isLast }) {
     }
   };
   
+  // Check if response needs to display classification message and suggestion separately
+  const hasClassificationMessage = fullResponse && fullResponse.classification_message && fullResponse.display_separately;
+  
+  // Check if response has a step just completed indicator
+  const justCompletedStep = fullResponse && fullResponse.current_step_completed;
+  
   // Render response cards for assistant messages
   const renderResponseCards = () => {
     if (role !== 'assistant' || !fullResponse || typeof fullResponse !== 'object') {
@@ -140,6 +146,9 @@ export default function Message({ message, isLast }) {
       key !== 'updated_flow_status' && 
       key !== 'classification_message' &&
       key !== 'identified_as' &&
+      key !== 'display_separately' &&
+      key !== 'current_step' &&
+      key !== 'current_step_completed' &&
       key in cardStyles
     );
     
@@ -232,6 +241,16 @@ export default function Message({ message, isLast }) {
       </div>
       
       <div className="flex flex-col items-start max-w-full">
+        {/* Classification message if it exists and should be displayed separately */}
+        {hasClassificationMessage && (
+          <div className="p-4 mb-2 rounded-2xl bg-blue-50 text-gray-800 rounded-bl-none">
+            <div 
+              dangerouslySetInnerHTML={{ __html: formatMessageContent(fullResponse.classification_message) }} 
+              className="message-content"
+            />
+          </div>
+        )}
+        
         <div 
           className={`p-4 rounded-2xl shadow-sm ${
             role === 'user' 
@@ -240,18 +259,23 @@ export default function Message({ message, isLast }) {
           }`}
           onClick={role === 'assistant' && fullResponse ? toggleDetails : undefined}
         >
-          {(!fullResponse || Object.keys(fullResponse).every(key => 
-            key === 'updated_flow_status' || 
-            key === 'classification_message' ||
-            key === 'identified_as'
-          )) ? (
+          {(!fullResponse || 
+            (Object.keys(fullResponse).every(key => 
+              key === 'updated_flow_status' || 
+              key === 'classification_message' ||
+              key === 'identified_as' ||
+              key === 'current_step' ||
+              key === 'current_step_completed' ||
+              key === 'display_separately'
+            ) && !hasClassificationMessage)
+          ) ? (
             <div 
               dangerouslySetInnerHTML={{ __html: formatMessageContent(content) }} 
               className="message-content"
             />
           ) : (
             <div className="message-content">
-              {/* For assistant messages with fullResponse, only show suggestion in the bubble */}
+              {/* For assistant messages with fullResponse, show suggestion in the bubble */}
               {role === 'assistant' && fullResponse.suggestion && (
                 <div dangerouslySetInnerHTML={{ __html: formatMessageContent(fullResponse.suggestion) }} />
               )}
