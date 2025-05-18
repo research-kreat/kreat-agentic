@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class IdeaBlockHandler(BaseBlockHandler):
     """
-    Enhanced handler for the Idea block type with improved dynamic suggestions
+    Enhanced handler for the Idea block type with improved dynamic suggestions  
     and better use of conversation history
     """
     
