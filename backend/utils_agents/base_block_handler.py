@@ -299,7 +299,7 @@ class BaseBlockHandler(ABC):
                 
                 Based on the user's messages and previous content, generate:
                 1. Compelling, insightful content for the "{current_step}" step.
-                Follow this given instructions to generate {current_step}:
+                Specific Guidelines and Format for "{current_step}" follow the same:
                 {self._get_step_guidelines(current_step)}
                 
                 2. A natural, conversational suggestion asking if they want to continue to the next step: {next_step if next_step else "final reflections"}.
