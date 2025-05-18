@@ -13,8 +13,7 @@ class BaseBlockHandler(ABC):
     """
     
     def __init__(self, db, block_id, user_id):
-        """
-        Initialize the block handler
+        """Initialize the block handler
         
         Args:
             db: MongoDB database instance
@@ -27,13 +26,13 @@ class BaseBlockHandler(ABC):
         self.flow_collection = db.flow_status
         self.history_collection = db.conversation_history
         
-        # Initialize LLM
+        # Initialize LLM with moderate temperature for creativity
         self.llm = LLM(
             model="azure/gpt-4o-mini",
             temperature=0.7
         )
         
-        # Standard flow steps for all block types
+        # Standard flow steps in the correct order
         self.flow_steps = [
             "title",
             "abstract",
@@ -53,13 +52,7 @@ class BaseBlockHandler(ABC):
         self.required_steps = ["title", "abstract"]
         self.priority_steps = ["title", "abstract"]
         
-        # Maximum word count limits for specific steps
-        self.word_limits = {
-            "title": 30,
-            "abstract": 200
-        }
-        
-        # Basic step descriptions for internal use only
+        # Human-readable step descriptions for prompts
         self.step_descriptions = {
             "title": "a compelling title",
             "abstract": "a clear summary",
@@ -74,19 +67,6 @@ class BaseBlockHandler(ABC):
             "classifications": "categorization schemes",
             "think_models": "thinking frameworks"
         }
-    
-    def _sanitize_user_input(self, text):
-        """Sanitize user input to avoid content policy violations"""
-        if not text:
-            return ""
-        
-        # Replace profanity with neutral terms
-        profanity_words = ["fuck", "shit", "ass", "damn", "bitch"]
-        sanitized = text.lower()
-        for word in profanity_words:
-            sanitized = re.sub(r'\b' + word + r'\w*\b', "[inappropriate]", sanitized, flags=re.IGNORECASE)
-        
-        return sanitized
     
     def is_greeting(self, user_input):
         """Check if the user input is a greeting"""
@@ -107,17 +87,17 @@ class BaseBlockHandler(ABC):
         return False
     
     def handle_greeting(self, user_input, block_type):
-        """Handle greeting from user with more concise, natural responses"""
-        history = self._get_conversation_history(limit=20)
+        """Handle greeting with natural, concise responses"""
+        history = self._get_conversation_history()
         previous_content = self._get_previous_content(history)
         block_context = self._get_block_context(previous_content, block_type)
         
-        # Block-specific contexts
+        # Block-specific contexts for better conversation
         block_contexts = {
             "idea": "innovative ideas",
-            "problem": "problems that need solving",
+            "problem": "problems worth solving",
             "possibility": "potential solutions",
-            "moonshot": "ambitious, transformative results",
+            "moonshot": "ambitious visions",
             "needs": "requirements to address",
             "opportunity": "promising opportunities",
             "concept": "structured solutions",
@@ -128,20 +108,19 @@ class BaseBlockHandler(ABC):
         context = block_contexts.get(block_type, "creative thinking")
         
         try:
-            # Create agent and task for greeting response
+            # Create agent for generating natural greeting
             agent = Agent(
                 role="Conversation Guide",
                 goal="Engage users in a friendly conversation about innovation",
-                backstory="You help people develop creative innovations. You're friendly but concise.",
+                backstory="You help people develop creative innovations with concise, natural responses.",
                 verbose=True,
                 llm=self.llm
             )
             
-            sanitized_input = self._sanitize_user_input(user_input)
-            
+            # Task for generating greeting response
             task = Task(
                 description=f"""
-                The user has greeted you with: "{sanitized_input}"
+                The user has greeted you with: "{user_input}"
                 
                 {block_context}
                 
@@ -152,9 +131,9 @@ class BaseBlockHandler(ABC):
                 2. References the current title/topic if available
                 3. Asks an open-ended question about {context} they're thinking about
                 
-                Keep your response VERY concise (1-2 sentences max).
+                Keep your response very concise (1-2 sentences).
                 Don't use bullet points or numbered lists.
-                Don't say "I can help you with..." or "Would you like to..." - just ask naturally.
+                Just ask naturally, avoiding phrases like "I can help you with..." or "Would you like to..."
                 """,
                 agent=agent,
                 expected_output="A brief, friendly greeting"
@@ -170,24 +149,25 @@ class BaseBlockHandler(ABC):
             result = crew.kickoff()
             return {
                 "identified_as": "greeting",
-                "greeting_response": result.raw.strip(),
-                "requires_classification": False
+                "greeting_response": result.raw.strip()
             }
         except Exception as e:
             logger.error(f"Error generating greeting response: {str(e)}")
             
-            # Create contextual default greeting
+            # Create contextual fallback greeting
             title_context = f" about '{previous_content.get('title')}'" if 'title' in previous_content else ""
             default_greeting = f"Hey there! What {block_type}{title_context} are you thinking about today?"
             
             return {
                 "identified_as": "greeting",
-                "greeting_response": default_greeting,
-                "requires_classification": False
+                "greeting_response": default_greeting
             }
     
     def _get_block_context(self, previous_content, block_type):
         """Generate context text based on previously generated content"""
+        if not previous_content:
+            return ""
+            
         context_parts = []
         
         # Add title if available
@@ -198,7 +178,7 @@ class BaseBlockHandler(ABC):
         if 'abstract' in previous_content:
             context_parts.append(f"Abstract: {previous_content['abstract']}")
         
-        # Only return context if we have at least one part
+        # Only return context if we have content
         if context_parts:
             type_label = block_type.capitalize()
             return f"Current {type_label} Context:\n" + "\n".join(context_parts)
@@ -207,8 +187,7 @@ class BaseBlockHandler(ABC):
     
     @abstractmethod
     def initialize_block(self, user_input):
-        """
-        Initialize a new block based on user input
+        """Initialize a new block based on user input
         
         Args:
             user_input: Initial user message
@@ -226,41 +205,24 @@ class BaseBlockHandler(ABC):
             block_type = block_data.get("block_type", "general")
             return self.handle_greeting(user_message, block_type)
         
-        # Get conversation history
-        history = self._get_conversation_history(limit=20)
+        # Get conversation history and previous content
+        history = self._get_conversation_history()
+        previous_content = self._get_previous_content(history)
         
         # Determine if user is confirming to proceed with current step
         is_confirmation = self._is_user_confirmation(user_message)
         
-        # Get previously generated content
-        previous_content = self._get_previous_content(history)
-        
-        # Find the current step based on flow status and required steps
+        # Find the current step based on flow status
         current_step = self._get_current_step(flow_status, previous_content)
         
         if not current_step:
-            # If all steps are completed, check if required steps are stored
-            missing_required = self._check_missing_required_steps(previous_content)
-            if missing_required:
-                # If required steps are missing, set the first missing one as current
-                current_step = missing_required[0]
-                return self._generate_contextual_response(user_message, current_step, flow_status, history)
-            else:
-                # All steps completed, provide contextual completion message
-                block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
-                block_type = block_data.get("block_type", "general")
-                
-                # Create contextual completion message using title and abstract
-                title_context = f" for '{previous_content.get('title')}'" if 'title' in previous_content else ""
-                return {"suggestion": f"We've covered all the main aspects{title_context}. What would you like to explore next?"}
+            # All steps completed, provide contextual completion message
+            title_context = f" for '{previous_content.get('title')}'" if 'title' in previous_content else ""
+            return {"suggestion": f"We've covered all the main aspects{title_context}. What would you like to explore next?"}
             
         if is_confirmation:
-            # User confirms to proceed - generate content for current step and suggestion for next step
+            # User confirms to proceed - generate content for current step
             result = self._generate_step_content_and_suggestion(current_step, user_message, flow_status, history, previous_content)
-            
-            # Enforce word limits for specific steps
-            if current_step in self.word_limits:
-                result[current_step] = self._enforce_word_limit(result[current_step], self.word_limits[current_step])
             
             # Update flow status
             updated_flow_status = flow_status.copy()
@@ -268,37 +230,12 @@ class BaseBlockHandler(ABC):
             
             # Add updated flow status to the response
             result["updated_flow_status"] = updated_flow_status
-            
-            # Important: Add the current step being completed to ensure UI displays correctly
             result["current_step_completed"] = current_step
             
             return result
         else:
             # User provided content or other input - respond contextually
             return self._generate_contextual_response(user_message, current_step, flow_status, history)
-    
-    def _check_missing_required_steps(self, previous_content):
-        """Check if any required steps are missing from the previous content"""
-        missing = [step for step in self.required_steps if step not in previous_content or not previous_content[step]]
-        return missing
-    
-    def _enforce_word_limit(self, content, max_words):
-        """Enforce word limit for specific steps"""
-        if not content:
-            return content
-            
-        # Convert content to string if it's not already
-        if not isinstance(content, str):
-            content = str(content)
-            
-        # Split into words and limit
-        words = content.split()
-        if len(words) > max_words:
-            trimmed = " ".join(words[:max_words])
-            if len(words) > max_words:
-                trimmed += "..."
-            return trimmed
-        return content
     
     def _is_user_confirmation(self, message):
         """Check if the user message is a confirmation to proceed"""
@@ -313,11 +250,10 @@ class BaseBlockHandler(ABC):
             "that's great", "thats great", "lets go", "let's continue"
         ]
         
-        # Check for exact matches for very short inputs
+        # Check for exact matches or if message starts with confirmation
         if message in confirmation_phrases:
             return True
             
-        # Check if message starts with or contains confirmation phrases
         for phrase in confirmation_phrases:
             if message.startswith(phrase) or f" {phrase} " in f" {message} ":
                 return True
@@ -326,7 +262,7 @@ class BaseBlockHandler(ABC):
     
     def _generate_step_content_and_suggestion(self, current_step, user_message, flow_status, history, previous_content):
         """Generate content for the current step and suggestion for the next step"""
-        # Get the initial input from the flow data
+        # Get the initial input and block type
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
         block_type = block_data.get("block_type", "general")
@@ -337,25 +273,15 @@ class BaseBlockHandler(ABC):
         next_step = self._get_next_step(next_status, previous_content)
         next_step_desc = self.step_descriptions.get(next_step, next_step) if next_step else "the next aspect"
         
-        # Prepare prompt context
+        # Prepare context for the prompt
         context = self._prepare_step_context(current_step, initial_input, previous_content, block_type)
-        
-        # Sanitize conversation history
-        sanitized_history = []
-        for msg in history[-10:]:  # Use only the last 10 messages
-            role = msg.get("role", "").upper()
-            content = self._sanitize_user_input(msg.get("message", ""))
-            if role and content:
-                sanitized_history.append(f"{role}: {content}")
-        
-        history_context = "\n".join(sanitized_history)
         
         try:
             # Create agent for content generation
             agent = Agent(
                 role="Creative Thinking Partner",
                 goal=f"Generate {self.step_descriptions.get(current_step, current_step)} for the user's {block_type}",
-                backstory="You help people develop innovations through structured thinking without being verbose.",
+                backstory="You help people develop innovations through structured thinking with natural responses.",
                 verbose=True,
                 llm=self.llm
             )
@@ -365,35 +291,24 @@ class BaseBlockHandler(ABC):
                 description=f"""
                 {context}
                 
-                Recent conversation:
-                {history_context}
-                
-                You need to generate two pieces of information:
-                
+                You need to generate:
                 1. {self.step_descriptions.get(current_step, current_step)} for this {block_type}
                 
                 Guidelines for "{current_step}":
                 {self._get_step_guidelines(current_step)}
                 
-                2. A brief suggestion for the next step ("{next_step if next_step else 'completing'}")
-                This should be a simple question asking if the user wants to continue.
+                2. A simple question asking if the user wants to continue to the next step: {next_step}.
                 
                 Format your response as JSON:
                 {{
-                    "{current_step}": // Content for the current step (formatted according to the guidelines)
-                    "suggestion": // A simple 1-sentence question like "Would you like to [action for next step]?"
+                    "{current_step}": // Content for the current step
+                    "suggestion": // A simple question about continuing to the next step: {next_step}.
                 }}
                 
-                IMPORTANT SAFETY GUIDELINES:
-                - Focus only on the specific user concept
-                - Avoid any potentially controversial content
-                - Keep all content neutral and concept-focused
-                
-                Make your response:
-                - Clear and focused
-                - Relevant to the topic
+                Keep your response:
+                - Clear and focused on the topic
                 - Following the specified format
-                - Include ONLY these two elements - no explanations or commentary
+                - Including only these two elements without extra explanations
                 """,
                 agent=agent,
                 expected_output=f"JSON with {current_step} content and next step suggestion"
@@ -420,12 +335,10 @@ class BaseBlockHandler(ABC):
                     if current_step_content:
                         result_data[current_step] = self._parse_step_result(current_step, json.dumps(current_step_content) if isinstance(current_step_content, (list, dict)) else current_step_content)
                     
-                    # Ensure suggestion is present and contextual
-                    if "suggestion" not in result_data:
-                        title_context = ""
-                        if 'title' in previous_content and current_step != 'title':
-                            title_context = f" for '{previous_content['title']}'"
-                            
+                    # Ensure suggestion is present
+                    if "suggestion" not in result_data or not result_data["suggestion"]:
+                        title_context = f" for '{previous_content['title']}'" if 'title' in previous_content and current_step != 'title' else ""
+                        
                         if next_step:
                             result_data["suggestion"] = f"Would you like to generate {next_step_desc}{title_context}?"
                         else:
@@ -436,34 +349,28 @@ class BaseBlockHandler(ABC):
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse JSON response: {result.raw}")
             
-            # Handle parsing failure with fallback
-            logger.warning(f"JSON parsing failed, using fallback response for {current_step}")
-            
-            # Fallback: return error message for the current step
+            # Fallback for parsing failures
             title_context = f" for '{previous_content['title']}'" if 'title' in previous_content and current_step != 'title' else ""
             
             return {
-                current_step: f"I'm having trouble generating {self.step_descriptions.get(current_step, current_step)}{title_context}. Let's try a different approach.",
+                current_step: f"Let's try a different approach for generating {self.step_descriptions.get(current_step, current_step)}{title_context}.",
                 "suggestion": f"Would you like to try generating {next_step_desc}{title_context}?" if next_step else f"What would you like to explore next{title_context}?"
             }
             
         except Exception as e:
-            # Log the error and use fallback
-            logger.error(f"Error generating content and suggestion: {str(e)}")
+            logger.error(f"Error generating content: {str(e)}")
             
             # Fallback response
-            title_context = ""
-            if 'title' in previous_content and current_step != 'title':
-                title_context = f" for '{previous_content['title']}'"
-                
+            title_context = f" for '{previous_content['title']}'" if 'title' in previous_content and current_step != 'title' else ""
+            
             return {
-                current_step: f"I'm having trouble generating {self.step_descriptions.get(current_step, current_step)}{title_context}. Let's try a different approach.",
+                current_step: f"Let's try a different approach for generating {self.step_descriptions.get(current_step, current_step)}{title_context}.",
                 "suggestion": f"Would you like to try generating {next_step_desc}{title_context}?" if next_step else f"What would you like to explore next{title_context}?"
             }
     
     def _parse_step_result(self, step, raw_result):
         """Parse the result based on the step type"""
-        # For structured data steps, try to extract JSON if present
+        # For structured data steps, try to extract JSON or format as list
         structured_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
                            "areas", "impact", "connections", "classifications", "think_models"]
         
@@ -477,7 +384,7 @@ class BaseBlockHandler(ABC):
                 except json.JSONDecodeError:
                     pass
                     
-            # If JSON parsing fails or no JSON found, return formatted list
+            # If JSON parsing fails, return formatted list
             return self._format_bullet_list(raw_result)
         else:
             # For title and abstract, return as plain text
@@ -485,12 +392,10 @@ class BaseBlockHandler(ABC):
     
     def _format_bullet_list(self, text):
         """Format text as a bullet list if it contains bullet points"""
-        # Split by lines
         lines = text.strip().split('\n')
         formatted_lines = []
         
         for line in lines:
-            # Clean up bullet points for consistency
             line = line.strip()
             if line.startswith('•') or line.startswith('-') or line.startswith('*'):
                 # Remove the bullet character and space
@@ -506,7 +411,6 @@ class BaseBlockHandler(ABC):
         """Generate a contextual response for user input that's not a direct confirmation"""
         # Get data for context
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
-        initial_input = block_data.get("initial_input", "")
         block_type = block_data.get("block_type", "general")
         previous_content = self._get_previous_content(history)
         
@@ -515,45 +419,32 @@ class BaseBlockHandler(ABC):
             agent = Agent(
                 role="Conversation Guide",
                 goal="Guide users through the creative thinking process",
-                backstory="You help users develop innovations with concise, clear responses.",
+                backstory="You help users develop innovations with concise, natural responses.",
                 verbose=True,
                 llm=self.llm
             )
             
-            # Build context including title and abstract if available
-            title_context = f"\nTitle: {previous_content['title']}" if 'title' in previous_content else ""
-            abstract_context = f"\nAbstract: {previous_content['abstract']}" if 'abstract' in previous_content else ""
-            
-            # Sanitize user message
-            sanitized_message = self._sanitize_user_input(user_message)
-            
-            # Create task for generating a response
+            # Create task for generating response
             task = Task(
                 description=f"""
-                Topic: "{initial_input}"
-                Block Type: {block_type}{title_context}{abstract_context}
+                Block Type: {block_type}
                 Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
+                Previous Content: {json.dumps(previous_content, default=str)[:500]}
                 
-                User's latest message: "{sanitized_message}"
+                User's latest message: "{user_message}"
                 
                 Create a brief, natural response in JSON format that suggests generating content for the current step.
                 
                 Format your response as:
                 {{
-                    "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step"
+                    "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step",
+                    "current_step": "{current_step}"
                 }}
                 
-                IMPORTANT SAFETY GUIDELINES:
-                - Focus only on the specific concept
-                - Avoid any potentially controversial content
-                - Keep all content neutral and concept-focused
-                
                 Your response should be:
-                - Conversational, 1-2 sentences maximum
+                - Conversational and brief (1-2 sentences)
                 - Ask if they'd like to proceed with generating {self.step_descriptions.get(current_step, current_step)}
-                - Use NO bullet points or numbered lists
-                - Use NO explanations or justifications
-                - NEVER explain what you're doing or what will happen next
+                - Use no bullet points, numbered lists, or explanations
                 """,
                 agent=agent,
                 expected_output="JSON with suggestion"
@@ -576,11 +467,10 @@ class BaseBlockHandler(ABC):
                     result_data = json.loads(json_match.group(1))
                     # Ensure suggestion is present
                     if "suggestion" not in result_data:
-                        # Include title context if available
                         title_ref = f" for '{previous_content['title']}'" if 'title' in previous_content else ""
                         result_data["suggestion"] = f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?"
                     
-                    # Add the current step being addressed for UI display
+                    # Add the current step for UI display
                     result_data["current_step"] = current_step
                     
                     return result_data
@@ -604,40 +494,35 @@ class BaseBlockHandler(ABC):
     
     def _get_current_step(self, flow_status, previous_content):
         """Get the current step based on flow status and previous content"""
-        # First, check for any required steps that haven't been completed yet
+        # First check for required steps
         for step in self.required_steps:
             if not flow_status.get(step, False) and (step not in previous_content or not previous_content[step]):
                 return step
                 
-        # Then follow the standard order for remaining steps
+        # Then follow the standard order
         for step in self.flow_steps:
             if not flow_status.get(step, False):
                 return step
         return None
     
     def _get_next_step(self, flow_status, previous_content):
-        """Get the next step after the current one, considering required steps"""
-        # First, collect all steps that need to be completed in the right order
+        """Get the next step after the current one"""
+        # First, collect steps that need to be completed
         steps_to_complete = []
         
         # Required steps that are missing have top priority
         for step in self.required_steps:
-            if step not in previous_content or not previous_content[step]:
-                if not flow_status.get(step, False):
-                    steps_to_complete.append(step)
+            if not flow_status.get(step, False) and (step not in previous_content or not previous_content[step]):
+                steps_to_complete.append(step)
         
         # Then add all other steps from the flow that haven't been completed
         for step in self.flow_steps:
             if not flow_status.get(step, False) and step not in steps_to_complete:
                 steps_to_complete.append(step)
         
-        # Find the current step (first one that needs to be completed)
-        if steps_to_complete:
-            current_step = steps_to_complete[0]
-            
-            # Find the next step (second one that needs to be completed)
-            if len(steps_to_complete) > 1:
-                return steps_to_complete[1]
+        # Find the next step (second one that needs to be completed)
+        if len(steps_to_complete) > 1:
+            return steps_to_complete[1]
         
         return None
     
@@ -650,44 +535,22 @@ class BaseBlockHandler(ABC):
         # Reverse to get chronological order
         return list(reversed(history))
     
-    def _format_previous_content_for_prompt(self, previous_content):
-        """Format previous content for inclusion in prompts"""
-        formatted = []
-        
-        # First add priority steps (title and abstract) if available
-        for step in self.priority_steps:
-            if step in previous_content:
-                formatted.append(f"{step.capitalize()}: {previous_content[step]}")
-        
-        # Then add other available steps
-        for step, content in previous_content.items():
-            if step not in self.priority_steps and step in self.flow_steps:
-                if isinstance(content, (dict, list)):
-                    try:
-                        formatted.append(f"{step.capitalize()}: {json.dumps(content, ensure_ascii=False)[:150]}...")
-                    except:
-                        formatted.append(f"{step.capitalize()}: {str(content)[:150]}...")
-                else:
-                    formatted.append(f"{step.capitalize()}: {str(content)[:150]}...")
-        
-        return "\n".join(formatted)
-    
-    def _prepare_step_context(self, step, initial_input, previous_content, block_type):
-        """Prepare context for step content generation with previous title and abstract"""
+    def _prepare_step_context(self, current_step, initial_input, previous_content, block_type):
+        """Prepare context for step content generation"""
         context = f"Topic: \"{initial_input}\"\nBlock Type: {block_type}\n\n"
         
-        # Add title and abstract first if they exist (priority steps)
+        # Add title and abstract first (priority steps)
         for priority_step in self.priority_steps:
             if priority_step in previous_content:
                 context += f"{priority_step.capitalize()}: {previous_content[priority_step]}\n\n"
         
-        # Add other previously generated content
+        # Add other previously generated content summaries
         if previous_content:
             context += "Other previously generated content:\n"
             for prev_step, content in previous_content.items():
                 if prev_step not in self.priority_steps and prev_step in self.flow_steps:
-                    if isinstance(content, (dict, list)):
-                        context += f"- {prev_step}: {json.dumps(content, ensure_ascii=False)[:100]}...\n"
+                    if isinstance(content, (list, dict)):
+                        context += f"- {prev_step}: {json.dumps(content, default=str)[:100]}...\n"
                     else:
                         context += f"- {prev_step}: {str(content)[:100]}...\n"
         
@@ -697,72 +560,69 @@ class BaseBlockHandler(ABC):
         """Get specific guidelines for generating content for a step"""
         guidelines = {
             "title": """
-            Create a clear, concise title (MAX 30 WORDS) that captures the essence of this concept.
+            Create a clear, concise title that captures the essence of this concept.
             The title should be memorable and specific.
-            Return only the title text without quotes, without any explanation.
-            IMPORTANT: The title MUST be 30 words or fewer.
+            Return only the title text without additional explanation.
             """,
             
             "abstract": """
-            Write a concise abstract (MAX 200 WORDS) that summarizes the core concept.
+            Write a concise abstract that summarizes the core concept.
             Cover what it is, why it matters, and its potential impact.
-            Use clear, professional language.
-            Return only the abstract text, without headers or additional commentary.
-            IMPORTANT: The abstract MUST be 200 words or fewer.
+            Use clear, professional language without excessive detail.
+            Return only the abstract text without headers or additional commentary.
             """,
             
             "stakeholders": """
-            Identify 4-8 key stakeholders relevant to this concept.
+            Identify key stakeholders relevant to this concept.
             Include individuals, groups, or organizations directly affected or involved.
             Format as a simple list without complex descriptions.
-            Avoid political, controversial, or sensitive content.
             """,
             
             "tags": """
-            Create 3-6 relevant tags or keywords for this concept.
+            Create relevant tags or keywords for this concept.
             These should be specific and relevant to the topic.
             Format as a list of single words or short phrases.
             """,
             
             "assumptions": """
-            List 3-5 key assumptions underlying this concept.
-            These should be foundational beliefs or premises that guide the concept's development.
+            List key assumptions underlying this concept.
+            These should be foundational beliefs or premises.
             Format as short, clear statements.
             """,
             
             "constraints": """
-            List 3-5 key constraints or limitations affecting this concept.
+            List key constraints or limitations affecting this concept.
             Format as short, clear statements.
             """,
             
             "risks": """
-            List 3-5 potential risks or challenges.
+            List potential risks or challenges.
             Format as short, clear statements.
             """,
             
             "areas": """
-            List 4-8 fields, disciplines, or domains connected to this concept.
+            List fields, disciplines, or domains connected to this concept.
             Include a note about the reach (e.g., global, regional).
             """,
             
             "impact": """
-            List 3-5 key impacts or benefits.
+            List key impacts or benefits.
             Format as clear statements emphasizing outcomes.
             """,
             
             "connections": """
-            List 8-12 related innovations or concepts.
+            List related innovations or concepts.
             Format as a simple list.
             """,
             
             "classifications": """
-            Categorize this concept using 3-5 different classification schemes.
+            Categorize this concept using different classification schemes.
             Examples: innovation type, development stage, complexity level.
             Format as a list with category names and values.
             """,
             
             "think_models": """
-            Apply 3-5 different thinking models (SWOT, First Principles, etc.).
+            Apply thinking models (SWOT, First Principles, etc.).
             For each model, provide a brief insight related to the concept.
             Format as a list with model names.
             """
@@ -774,7 +634,7 @@ class BaseBlockHandler(ABC):
         """Get previously generated content from conversation history"""
         content = {}
         
-        # Process history in reverse chronological order to get the most recent content first
+        # Process history in reverse to get the most recent content first
         for item in reversed(history):
             if item.get("role") == "assistant" and "result" in item:
                 result = item["result"]
