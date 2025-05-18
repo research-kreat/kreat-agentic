@@ -431,46 +431,121 @@ class BaseBlockHandler(ABC):
             fallbacks["connections"] = [f"Extensions of {title}", "Related technologies", "Complementary innovations"]
         
         return fallbacks.get(step, [f"Content for {step}"])
-    
+
     def _parse_step_result(self, step, raw_result):
-        """Parse the result based on the step type"""
-        # For structured data steps, try to extract JSON or format as list
-        structured_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
-                           "areas", "impact", "connections", "classifications", "think_models"]
+        """Parse the result based on the step type and enforce expected format"""
+        # Define which steps should be arrays/lists
+        list_format_steps = ["stakeholders", "tags", "assumptions", "constraints", "risks", 
+                            "areas", "impact", "connections", "think_models"]
+                            
+        # Define which steps should be dictionary/object format
+        dict_format_steps = ["classifications"]
         
-        if step in structured_steps:
-            # Try to find JSON in the result
-            json_match = re.search(r'({.*}|\[.*\])', raw_result, re.DOTALL)
+        # Define which steps should be plain text
+        text_format_steps = ["title", "abstract"]
+        
+        # Handle list formatted steps
+        if step in list_format_steps:
+            # Try to find JSON array in the result
+            json_match = re.search(r'\[(.*)\]', raw_result, re.DOTALL)
             
             if json_match:
                 try:
-                    return json.loads(json_match.group(0))
+                    parsed_list = json.loads(f"[{json_match.group(1)}]")
+                    # Ensure it's a list of strings
+                    return [str(item).strip() for item in parsed_list if item]
                 except json.JSONDecodeError:
                     pass
                     
-            # If JSON parsing fails, return formatted list
-            return self._format_bullet_list(raw_result)
+            # If JSON parsing fails, format as bullet list
+            formatted_list = self._format_bullet_list(raw_result)
+            if isinstance(formatted_list, list):
+                return formatted_list
+            else:
+                # Split by lines and clean up as fallback
+                lines = raw_result.strip().split('\n')
+                return [line.strip().lstrip('-•*').strip() for line in lines if line.strip()]
+        
+        # Handle dictionary formatted steps
+        elif step in dict_format_steps:
+            # Try to find JSON object in the result
+            json_match = re.search(r'{(.*)}', raw_result, re.DOTALL)
+            
+            if json_match:
+                try:
+                    return json.loads(f"{{{json_match.group(1)}}}")
+                except json.JSONDecodeError:
+                    # Fallback: create dictionary from lines
+                    lines = raw_result.strip().split('\n')
+                    result_dict = {}
+                    for line in lines:
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            result_dict[key.strip()] = value.strip()
+                    return result_dict
+        
+        # Handle text formatted steps (title, abstract)
+        elif step in text_format_steps:
+            # Simply return cleaned text
+            return raw_result.strip().replace('"', '').replace("'", "")
+        
+        # Default fallback
         else:
-            # For title and abstract, return as plain text
+            # Try to determine format from content
+            if raw_result.strip().startswith('[') and raw_result.strip().endswith(']'):
+                try:
+                    return json.loads(raw_result)
+                except json.JSONDecodeError:
+                    pass
+            
+            if raw_result.strip().startswith('{') and raw_result.strip().endswith('}'):
+                try:
+                    return json.loads(raw_result)
+                except json.JSONDecodeError:
+                    pass
+            
+            # Default to text
             return raw_result.strip()
-    
+
     def _format_bullet_list(self, text):
         """Format text as a bullet list if it contains bullet points"""
         lines = text.strip().split('\n')
         formatted_lines = []
         
+        # Common bullet point markers
+        bullet_markers = ['•', '-', '*', '–', '—', '→', '•', '⁃', '⁌', '⁍', '○', '◦', '⦿', '⦾', '⊙', '⊚', '⊛', '⊜', '⊝', '#', '##', '###']
+        number_prefixes = [f"{i}." for i in range(1, 20)] + [f"{i})" for i in range(1, 20)]
+        all_markers = bullet_markers + number_prefixes
+        
         for line in lines:
             line = line.strip()
-            if line.startswith('•') or line.startswith('-') or line.startswith('*'):
-                # Remove the bullet character and space
-                cleaned_line = line[1:].strip()
+            
+            # Skip empty lines and headers
+            if not line or line.startswith('#') or line.endswith(':'):
+                continue
+                
+            # Check if line starts with a bullet marker
+            is_bullet_line = False
+            for marker in all_markers:
+                if line.startswith(marker) and len(marker) < len(line):
+                    # Remove the bullet character and space
+                    cleaned_line = line[len(marker):].strip()
+                    formatted_lines.append(cleaned_line)
+                    is_bullet_line = True
+                    break
+                    
+            # Also check for lines that have numbering patterns like "1. " or "1) "
+            if not is_bullet_line and re.match(r'^\d+[\.\)]', line):
+                # Remove the numbering
+                cleaned_line = re.sub(r'^\d+[\.\)]', '', line).strip()
                 formatted_lines.append(cleaned_line)
-            elif line and not line.startswith('#') and not line.endswith(':'):
-                # Non-empty lines that aren't headers or list intros
+            elif not is_bullet_line and line:
+                # Non-empty lines that aren't caught by other rules
                 formatted_lines.append(line)
         
-        return formatted_lines if formatted_lines else text.strip()
-    
+        return formatted_lines if formatted_lines else []
+
+  
     def _generate_contextual_response(self, user_message, current_step, flow_status, history):
         """Generate a contextual response for user input that's not a direct confirmation"""
         # Get data for context
@@ -624,70 +699,83 @@ class BaseBlockHandler(ABC):
             "title": """
             Create a clear, concise title (5-10 words) that captures the essence of this concept.
             The title should be memorable and specific.
-            Return only the title text without double quotation, without any explanation.
+            OUTPUT FORMAT: Return only the plain text title without quotation marks or additional explanation.
+            Example: "Sustainable Smart Grid Integration Platform"
             """,
             
             "abstract": """
             Write a concise abstract (150-200 words) that summarizes the core concept.
             Cover what it is, why it matters, and its potential impact.
             Use clear, professional language.
-            Return only the abstract text, without headers or additional commentary.
+            OUTPUT FORMAT: Return only the abstract text, without headers or additional commentary.
+            Example: "This initiative proposes a framework for integrating renewable energy sources..."
             """,
             
             "stakeholders": """
             List 4-8 key stakeholders relevant to this concept.
-            Include individuals, groups, or organizations that are directly or indirectly involved. (e.g., UI/UX Designer, Product Manager, etc.)
-            Format as a simple list.
+            Include individuals, groups, or organizations that are directly or indirectly involved.
+            OUTPUT FORMAT: Return as an array/list of strings.
+            Example: ["Energy providers", "Urban planners", "Consumers", "Government regulators"]
             """,
             
             "tags": """
             List 3-6 relevant tags or keywords for this concept.
-            These should be specific and relevant to the topic. (e.g., Technology Innovation, Sustainability, etc.)
-            Format as a list of single words or short phrases.
+            These should be specific and relevant to the topic.
+            OUTPUT FORMAT: Return as an array/list of strings.
+            Example: ["Sustainability", "Energy", "Smart Cities", "Infrastructure"]
             """,
             
             "assumptions": """
             List 3-5 key assumptions underlying this concept.
             These should be foundational beliefs or premises that guide the concept's development.
-            Format as short, clear statements without bullet points or numbers.
+            OUTPUT FORMAT: Return as an array/list of strings, with each assumption as a complete sentence.
+            Example: ["Renewable energy adoption will continue to grow", "Governments will support green infrastructure"]
             """,
             
             "constraints": """
             List 3-5 key constraints or limitations affecting this concept.
-            Format as short, clear statements without bullet points or numbers.
+            OUTPUT FORMAT: Return as an array/list of strings, with each constraint as a complete phrase.
+            Example: ["Limited funding resources", "Technical implementation challenges", "Regulatory hurdles"]
             """,
             
             "risks": """
             List 3-5 potential risks or challenges.
-            Format as short, clear statements without bullet points or numbers.
+            OUTPUT FORMAT: Return as an array/list of strings, with each risk as a complete phrase.
+            Example: ["Market resistance to adoption", "Technology obsolescence", "Infrastructure compatibility issues"]
             """,
             
             "areas": """
             List 4-8 fields, disciplines, or domains connected to this concept.
             Include a note about the reach (e.g., global, regional).
+            OUTPUT FORMAT: Return as an array/list of strings.
+            Example: ["Urban Planning", "Renewable Energy", "Data Analytics", "Public Policy"]
             """
             ,
             
             "impact": """
             List 3-5 key impacts or benefits.
-            Format as clear statements emphasizing outcomes.
+            OUTPUT FORMAT: Return as an array/list of strings, emphasizing outcomes.
+            Example: ["Reduced carbon emissions", "Lower energy costs", "Improved grid reliability"]
             """,
             
             "connections": """
             List 8-12 related innovations or concepts.
-            Format as a simple list.
+            OUTPUT FORMAT: Return as an array/list of strings.
+            Example: ["Smart Metering Systems", "Decentralized Power Generation", "Energy Storage Solutions"]
             """,
             
             "classifications": """
             Categorize this concept using 3-5 different classification schemes.
             Examples: innovation type, development stage, complexity level.
-            Format as a list with category names and values.
+            OUTPUT FORMAT: Return as a dictionary/object with category names as keys and values as strings.
+            Example: {"Innovation Type": "Infrastructure", "Development Stage": "Conceptual", "Complexity": "High"}
             """,
             
             "think_models": """
             Apply 3-5 different thinking models (SWOT, First Principles, etc.).
             For each model, provide a brief insight related to the concept.
-            Format as a list with model names.
+            OUTPUT FORMAT: Return as an array/list of strings, with each item naming the model.
+            Example: ["SWOT Analysis", "Design Thinking", "Systems Thinking", "First Principles"]
             """
         }
         
