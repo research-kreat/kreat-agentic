@@ -11,7 +11,7 @@ def sanitize_response(response):
     """
     if isinstance(response, dict):
         for key, value in response.items():
-            if isinstance(value, str): 
+            if isinstance(value, str):
                 # Remove markdown code blocks
                 value = value.replace("```", "")
                 # Remove inline code
