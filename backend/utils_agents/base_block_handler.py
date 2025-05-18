@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BaseBlockHandler(ABC):
     """
-    Enhanced base class for all block handlers with improved conversation history utilization
+    Base class for all block handlers with improved error handling and flow control
     """
     
     def __init__(self, db, block_id, user_id):
@@ -52,7 +52,7 @@ class BaseBlockHandler(ABC):
         
         # Mark title and abstract as required and priority steps
         self.required_steps = ["title", "abstract"]
-        self.priority_steps = ["title", "abstract"]  # Steps that should always be included in context
+        self.priority_steps = ["title", "abstract"]
         
         # Maximum word count limits for specific steps
         self.word_limits = {
@@ -60,7 +60,7 @@ class BaseBlockHandler(ABC):
             "abstract": 200
         }
         
-        # Basic step descriptions for internal use only (not for user-facing suggestions)
+        # Basic step descriptions for internal use only
         self.step_descriptions = {
             "title": "a compelling title (max 30 words)",
             "abstract": "a clear summary (max 200 words)",
@@ -77,15 +77,7 @@ class BaseBlockHandler(ABC):
         }
     
     def is_greeting(self, user_input):
-        """
-        Check if the user input is a greeting
-        
-        Args:
-            user_input: User's message
-            
-        Returns:
-            bool: True if the input is a greeting, False otherwise
-        """
+        """Check if the user input is a greeting"""
         greeting_phrases = [
             "hi", "hello", "hey", "greetings", "good morning", "good afternoon", 
             "good evening", "howdy", "what's up", "how are you", "nice to meet you",
@@ -93,10 +85,9 @@ class BaseBlockHandler(ABC):
             "hey there", "welcome", "good day", "how do you do", "how's everything"
         ]
 
-        # Clean and normalize input for comparison
         clean_input = user_input.lower().strip()
         
-        # Check if the input starts with any greeting phrase or is a greeting phrase
+        # Check if input starts with greeting phrase or is a greeting
         for phrase in greeting_phrases:
             if clean_input.startswith(phrase) or clean_input == phrase:
                 return True
@@ -104,31 +95,12 @@ class BaseBlockHandler(ABC):
         return False
     
     def handle_greeting(self, user_input, block_type):
-        """
-        Handle greeting from user with more concise, natural responses
-        
-        Args:
-            user_input: User's greeting message
-            block_type: Type of the block
-            
-        Returns:
-            dict: Response with greeting
-        """
-        # Get the current block context including title if available
+        """Handle greeting from user with more concise, natural responses"""
         history = self._get_conversation_history(limit=20)
         previous_content = self._get_previous_content(history)
         block_context = self._get_block_context(previous_content, block_type)
         
-        # Create a specialized agent for greeting responses
-        agent = Agent(
-            role="Conversation Guide",
-            goal="Engage users in a friendly conversation about innovation",
-            backstory="You help people develop creative innovations. You're friendly but concise, guiding naturally without being instructional.",
-            verbose=True,
-            llm=self.llm
-        )
-        
-        # Block-specific contexts to guide the LLM
+        # Block-specific contexts
         block_contexts = {
             "idea": "innovative ideas",
             "problem": "problems that need solving",
@@ -143,37 +115,44 @@ class BaseBlockHandler(ABC):
         
         context = block_contexts.get(block_type, "creative thinking")
         
-        # Create task for generating a greeting response
-        task = Task(
-            description=f"""
-            The user has greeted you with: "{user_input}"
-            
-            {block_context}
-            
-            You're having a conversation about {context}.
-            
-            Respond with a brief, friendly greeting that:
-            1. Acknowledges their greeting
-            2. References the current title/topic if available
-            3. Asks an open-ended question about {context} they're thinking about
-            
-            Keep your response VERY concise (1-2 sentences max).
-            Don't use bullet points or numbered lists.
-            Don't say "I can help you with..." or "Would you like to..." - just ask naturally.
-            """,
-            agent=agent,
-            expected_output="A brief, friendly greeting"
-        )
-        
-        # Execute the task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
         try:
+            # Create agent and task for greeting response
+            agent = Agent(
+                role="Conversation Guide",
+                goal="Engage users in a friendly conversation about innovation",
+                backstory="You help people develop creative innovations. You're friendly but concise.",
+                verbose=True,
+                llm=self.llm
+            )
+            
+            task = Task(
+                description=f"""
+                The user has greeted you with: "{user_input}"
+                
+                {block_context}
+                
+                You're having a conversation about {context}.
+                
+                Respond with a brief, friendly greeting that:
+                1. Acknowledges their greeting
+                2. References the current title/topic if available
+                3. Asks an open-ended question about {context} they're thinking about
+                
+                Keep your response VERY concise (1-2 sentences max).
+                Don't use bullet points or numbered lists.
+                Don't say "I can help you with..." or "Would you like to..." - just ask naturally.
+                """,
+                agent=agent,
+                expected_output="A brief, friendly greeting"
+            )
+            
+            crew = Crew(
+                agents=[agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=True
+            )
+            
             result = crew.kickoff()
             return {
                 "identified_as": "greeting",
@@ -194,17 +173,7 @@ class BaseBlockHandler(ABC):
             }
     
     def _get_block_context(self, previous_content, block_type):
-        """
-        Generate context text based on previously generated content
-        Focusing on title and abstract as the most important context
-        
-        Args:
-            previous_content: Dictionary of previously generated content
-            block_type: Type of block
-            
-        Returns:
-            str: Context text for prompts
-        """
+        """Generate context text based on previously generated content"""
         context_parts = []
         
         # Add title if available
@@ -236,18 +205,8 @@ class BaseBlockHandler(ABC):
         pass
     
     def process_message(self, user_message, flow_status):
-        """
-        Process a user message based on current flow status
-        Using more concise, conversational transitions between steps
-        
-        Args:
-            user_message: Message from the user
-            flow_status: Current flow status
-            
-        Returns:
-            dict: Response with results and next step suggestion
-        """
-        # Get conversation history (increased to get more context)
+        """Process user message based on current flow status"""
+        # Get conversation history
         history = self._get_conversation_history(limit=20)
         
         # Check if the message is a greeting
@@ -259,7 +218,7 @@ class BaseBlockHandler(ABC):
         # Determine if user is confirming to proceed with current step
         is_confirmation = self._is_user_confirmation(user_message)
         
-        # Get previously generated content to use as context
+        # Get previously generated content
         previous_content = self._get_previous_content(history)
         
         # Find the current step based on flow status and required steps
@@ -273,7 +232,7 @@ class BaseBlockHandler(ABC):
                 current_step = missing_required[0]
                 return self._generate_contextual_response(user_message, current_step, flow_status, history)
             else:
-                # Get the initial input and block type
+                # All steps completed, provide contextual completion message
                 block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
                 block_type = block_data.get("block_type", "general")
                 
@@ -282,7 +241,7 @@ class BaseBlockHandler(ABC):
                 return {"suggestion": f"We've covered all the main aspects{title_context}. What would you like to explore next?"}
             
         if is_confirmation:
-            # User confirms to proceed - generate content for current step and suggestion for next step in one task
+            # User confirms to proceed - generate content for current step and suggestion for next step
             result = self._generate_step_content_and_suggestion(current_step, user_message, flow_status, history, previous_content)
             
             # Enforce word limits for specific steps
@@ -302,30 +261,12 @@ class BaseBlockHandler(ABC):
             return self._generate_contextual_response(user_message, current_step, flow_status, history)
     
     def _check_missing_required_steps(self, previous_content):
-        """
-        Check if any required steps are missing from the previous content
-        
-        Args:
-            previous_content: Dictionary of previously generated content
-            
-        Returns:
-            list: Missing required steps
-        """
-        # Check which required steps are missing
+        """Check if any required steps are missing from the previous content"""
         missing = [step for step in self.required_steps if step not in previous_content or not previous_content[step]]
         return missing
     
     def _enforce_word_limit(self, content, max_words):
-        """
-        Enforce word limit for specific steps
-        
-        Args:
-            content: Step content
-            max_words: Maximum number of words allowed
-            
-        Returns:
-            str: Content trimmed to word limit
-        """
+        """Enforce word limit for specific steps"""
         if not content:
             return content
             
@@ -336,7 +277,6 @@ class BaseBlockHandler(ABC):
         # Split into words and limit
         words = content.split()
         if len(words) > max_words:
-            # Trim to max words and add ellipsis if trimmed
             trimmed = " ".join(words[:max_words])
             if len(words) > max_words:
                 trimmed += "..."
@@ -344,16 +284,7 @@ class BaseBlockHandler(ABC):
         return content
     
     def _is_user_confirmation(self, message):
-        """
-        Check if the user message is a confirmation to proceed
-        Matches any affirmative response like "ok", "yes", "sure", "proceed", etc.
-        
-        Args:
-            message: User's message
-            
-        Returns:
-            bool: True if it's a confirmation, False otherwise
-        """
+        """Check if the user message is a confirmation to proceed"""
         message = message.lower().strip()
         
         # Common confirmation phrases
@@ -361,7 +292,8 @@ class BaseBlockHandler(ABC):
             "ok", "okay", "yes", "yeah", "yep", "sure", "proceed", 
             "let's do it", "go ahead", "continue", "generate", "please do",
             "sounds good", "good", "great", "perfect", "do it",
-            "i'm ready", "ready", "let's go", "go for it", "next"
+            "i'm ready", "ready", "let's go", "go for it", "next",
+            "that's great", "thats great", "lets go", "let's continue"
         ]
         
         # Check for exact matches for very short inputs
@@ -376,19 +308,7 @@ class BaseBlockHandler(ABC):
         return False
     
     def _generate_step_content_and_suggestion(self, current_step, user_message, flow_status, history, previous_content):
-        """
-        Generate both content for the current step and suggestion for the next step in a single task
-        
-        Args:
-            current_step: Current step in the flow
-            user_message: User's message
-            flow_status: Current flow status
-            history: Conversation history
-            previous_content: Dictionary of previously generated content
-            
-        Returns:
-            dict: Response with results and next step suggestion
-        """
+        """Generate content for the current step and suggestion for the next step"""
         # Get the initial input from the flow data
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
@@ -400,64 +320,62 @@ class BaseBlockHandler(ABC):
         next_step = self._get_next_step(next_status, previous_content)
         next_step_desc = self.step_descriptions.get(next_step, next_step) if next_step else "the next aspect"
         
-        # Create agent for content generation
-        agent = Agent(
-            role="Creative Thinking Partner",
-            goal=f"Generate {self.step_descriptions.get(current_step, current_step)} for the user's {block_type}",
-            backstory="You help people develop innovations through structured thinking without being verbose.",
-            verbose=True,
-            llm=self.llm
-        )
-        
         # Prepare prompt context
         context = self._prepare_step_context(current_step, initial_input, previous_content, block_type)
-        
-        # Include conversation history for better context
         history_context = self._format_history_for_prompt(history)
         
-        # Create task for content generation
-        task = Task(
-            description=f"""
-            {context}
-            
-            Recent conversation:
-            {history_context}
-            
-            You need to generate two pieces of information:
-            
-            1. {self.step_descriptions.get(current_step, current_step)} for this {block_type}
-            
-            Guidelines for "{current_step}":
-            {self._get_step_guidelines(current_step)}
-            
-            2. A brief suggestion for the next step ("{next_step if next_step else 'completing'}")
-            This should be a simple question asking if the user wants to continue.
-            
-            Format your response as JSON:
-            {{
-                "{current_step}": // Content for the current step (formatted according to the guidelines)
-                "suggestion": // A simple 1-sentence question like "Would you like to [action for next step]?"
-            }}
-            
-            Make your response:
-            - Clear and focused
-            - Relevant to the topic
-            - Following the specified format
-            - Include ONLY these two elements - no explanations or commentary
-            """,
-            agent=agent,
-            expected_output=f"JSON with {current_step} content and next step suggestion"
-        )
-        
-        # Execute task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
         try:
+            # Create agent for content generation
+            agent = Agent(
+                role="Creative Thinking Partner",
+                goal=f"Generate {self.step_descriptions.get(current_step, current_step)} for the user's {block_type}",
+                backstory="You help people develop innovations through structured thinking without being verbose.",
+                verbose=True,
+                llm=self.llm
+            )
+            
+            # Create task for content generation
+            task = Task(
+                description=f"""
+                {context}
+                
+                Recent conversation:
+                {history_context}
+                
+                You need to generate two pieces of information:
+                
+                1. {self.step_descriptions.get(current_step, current_step)} for this {block_type}
+                
+                Guidelines for "{current_step}":
+                {self._get_step_guidelines(current_step)}
+                
+                2. A brief suggestion for the next step ("{next_step if next_step else 'completing'}")
+                This should be a simple question asking if the user wants to continue.
+                
+                Format your response as JSON:
+                {{
+                    "{current_step}": // Content for the current step (formatted according to the guidelines)
+                    "suggestion": // A simple 1-sentence question like "Would you like to [action for next step]?"
+                }}
+                
+                Make your response:
+                - Clear and focused
+                - Relevant to the topic
+                - Following the specified format
+                - Include ONLY these two elements - no explanations or commentary
+                """,
+                agent=agent,
+                expected_output=f"JSON with {current_step} content and next step suggestion"
+            )
+            
+            # Execute task
+            crew = Crew(
+                agents=[agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=True
+            )
+            
             result = crew.kickoff()
             
             # Parse result as JSON
@@ -473,7 +391,6 @@ class BaseBlockHandler(ABC):
                     
                     # Ensure suggestion is present and contextual
                     if "suggestion" not in result_data:
-                        # Include title context if available
                         title_context = ""
                         if 'title' in previous_content and current_step != 'title':
                             title_context = f" for '{previous_content['title']}'"
@@ -488,22 +405,19 @@ class BaseBlockHandler(ABC):
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse JSON response: {result.raw}")
             
-            # Fallback if JSON parsing fails
-            current_step_content = self._parse_step_result(current_step, result.raw)
+            # Handle parsing failure with fallback
+            logger.warning(f"JSON parsing failed, using fallback response for {current_step}")
             
-            # Include title context if available
-            title_context = ""
-            if 'title' in previous_content and current_step != 'title':
-                title_context = f" for '{previous_content['title']}'"
-                
-            suggestion = f"Would you like to generate {next_step_desc}{title_context}?" if next_step else f"Great! We've completed all the steps{title_context}. What would you like to explore next?"
+            # Fallback: return error message for the current step
+            title_context = f" for '{previous_content['title']}'" if 'title' in previous_content and current_step != 'title' else ""
             
             return {
-                current_step: current_step_content,
-                "suggestion": suggestion
+                current_step: f"I'm having trouble generating {self.step_descriptions.get(current_step, current_step)}{title_context}. Let's try a different approach.",
+                "suggestion": f"Would you like to try generating {next_step_desc}{title_context}?" if next_step else f"What would you like to explore next{title_context}?"
             }
             
         except Exception as e:
+            # Log the error and use fallback
             logger.error(f"Error generating content and suggestion: {str(e)}")
             
             # Fallback response
@@ -558,82 +472,67 @@ class BaseBlockHandler(ABC):
         return formatted_lines if formatted_lines else text.strip()
     
     def _generate_contextual_response(self, user_message, current_step, flow_status, history):
-        """
-        Generate a contextual response for user input that's not a direct confirmation
-        With more concise, conversational style
-        
-        Args:
-            user_message: User's message
-            current_step: Current step in the flow
-            flow_status: Current flow status
-            history: Conversation history
-            
-        Returns:
-            dict: Response with suggestion
-        """
-        # Get the initial input
+        """Generate a contextual response for user input that's not a direct confirmation"""
+        # Get data for context
         block_data = self.flow_collection.find_one({"block_id": self.block_id, "user_id": self.user_id})
         initial_input = block_data.get("initial_input", "")
         block_type = block_data.get("block_type", "general")
-        
-        # Get previously generated content to provide as context
         previous_content = self._get_previous_content(history)
         
-        # Create an agent for contextual responses
-        agent = Agent(
-            role="Conversation Guide",
-            goal="Guide users through the creative thinking process",
-            backstory="You help users develop innovations with concise, clear responses.",
-            verbose=True,
-            llm=self.llm
-        )
-        
-        # Build context including title and abstract if available
-        title_context = f"\nTitle: {previous_content['title']}" if 'title' in previous_content else ""
-        abstract_context = f"\nAbstract: {previous_content['abstract']}" if 'abstract' in previous_content else ""
-        
-        # Create task for generating a response
-        task = Task(
-            description=f"""
-            Topic: "{initial_input}"
-            Block Type: {block_type}{title_context}{abstract_context}
-            Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
-            
-            Previous Content: {self._format_previous_content_for_prompt(previous_content)}
-            
-            Recent conversation:
-            {self._format_history_for_prompt(history)}
-            
-            User's latest message: "{user_message}"
-            
-            Create a brief, natural response in JSON format that suggests generating content for the current step.
-            
-            Format your response as:
-            {{
-                "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step"
-            }}
-            
-            Your response should be:
-            - Conversational, 1-2 sentences maximum
-            - Reference the title/topic if available 
-            - Ask if they'd like to proceed with generating {self.step_descriptions.get(current_step, current_step)}
-            - Use NO bullet points or numbered lists
-            - Use NO explanations or justifications
-            - NEVER explain what you're doing or what will happen next
-            """,
-            agent=agent,
-            expected_output="JSON with suggestion"
-        )
-        
-        # Execute the task
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=True
-        )
-        
         try:
+            # Create agent for contextual responses
+            agent = Agent(
+                role="Conversation Guide",
+                goal="Guide users through the creative thinking process",
+                backstory="You help users develop innovations with concise, clear responses.",
+                verbose=True,
+                llm=self.llm
+            )
+            
+            # Build context including title and abstract if available
+            title_context = f"\nTitle: {previous_content['title']}" if 'title' in previous_content else ""
+            abstract_context = f"\nAbstract: {previous_content['abstract']}" if 'abstract' in previous_content else ""
+            
+            # Create task for generating a response
+            task = Task(
+                description=f"""
+                Topic: "{initial_input}"
+                Block Type: {block_type}{title_context}{abstract_context}
+                Current Step: {current_step} ({self.step_descriptions.get(current_step, current_step)})
+                
+                Previous Content: {self._format_previous_content_for_prompt(previous_content)}
+                
+                Recent conversation:
+                {self._format_history_for_prompt(history)}
+                
+                User's latest message: "{user_message}"
+                
+                Create a brief, natural response in JSON format that suggests generating content for the current step.
+                
+                Format your response as:
+                {{
+                    "suggestion": "Your 1-2 sentence response that asks if they'd like to proceed with the current step"
+                }}
+                
+                Your response should be:
+                - Conversational, 1-2 sentences maximum
+                - Ask if they'd like to proceed with generating {self.step_descriptions.get(current_step, current_step)}
+                - Use NO bullet points or numbered lists
+                - Use NO explanations or justifications
+                - NEVER explain what you're doing or what will happen next
+                """,
+                agent=agent,
+                expected_output="JSON with suggestion"
+            )
+            
+            # Execute the task
+            crew = Crew(
+                agents=[agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=True
+            )
+            
             result = crew.kickoff()
             
             # Try to parse JSON from the result
@@ -664,44 +563,8 @@ class BaseBlockHandler(ABC):
                 "suggestion": f"Would you like to generate {self.step_descriptions.get(current_step, current_step)}{title_ref}?"
             }
     
-    def _is_related_to_current_step(self, user_message, current_step):
-        """Simple check if user message seems related to current step"""
-        step_keywords = {
-            "title": ["title", "name", "heading", "call it"],
-            "abstract": ["abstract", "summary", "overview", "describe"],
-            "stakeholders": ["stakeholders", "people", "users", "groups", "involved"],
-            "tags": ["tags", "keywords", "categories", "label", "type"],
-            "assumptions": ["assumptions", "assume", "premise", "presuppose"],
-            "constraints": ["constraints", "limitations", "restrictions", "limits"],
-            "risks": ["risks", "problems", "challenges", "issues", "concerns"],
-            "areas": ["areas", "domains", "fields", "subjects", "related to"],
-            "impact": ["impact", "effects", "benefits", "results", "outcomes"],
-            "connections": ["connections", "links", "related", "similar", "connected"],
-            "classifications": ["classifications", "categories", "types", "classes"],
-            "think_models": ["thinking", "models", "frameworks", "approaches", "perspectives"]
-        }
-        
-        # Get keywords for current step
-        current_keywords = step_keywords.get(current_step, [current_step])
-        
-        # Check if any keyword appears in the user message
-        for keyword in current_keywords:
-            if keyword in user_message.lower():
-                return True
-        
-        return False
-
     def _get_current_step(self, flow_status, previous_content):
-        """
-        Get the current step based on flow status and previous content
-        
-        Args:
-            flow_status: Current flow status
-            previous_content: Dictionary of previously generated content
-            
-        Returns:
-            str: Current step to process
-        """
+        """Get the current step based on flow status and previous content"""
         # First, check for any required steps that haven't been completed yet
         for step in self.required_steps:
             if not flow_status.get(step, False) and (step not in previous_content or not previous_content[step]):
@@ -714,20 +577,11 @@ class BaseBlockHandler(ABC):
         return None
     
     def _get_next_step(self, flow_status, previous_content):
-        """
-        Get the next step after the current one, considering required steps
-        
-        Args:
-            flow_status: Current flow status dictionary
-            previous_content: Dictionary of previously generated content
-            
-        Returns:
-            str: Next step to process
-        """
+        """Get the next step after the current one, considering required steps"""
         # First, collect all steps that need to be completed in the right order
         steps_to_complete = []
         
-        # Required steps that are missing from previous content have top priority
+        # Required steps that are missing have top priority
         for step in self.required_steps:
             if step not in previous_content or not previous_content[step]:
                 if not flow_status.get(step, False):
@@ -749,12 +603,7 @@ class BaseBlockHandler(ABC):
         return None
     
     def _get_conversation_history(self, limit=20):
-        """
-        Get the conversation history for context
-        
-        Args:
-            limit: Maximum number of messages to retrieve
-        """
+        """Get the conversation history for context"""
         history = list(self.history_collection.find(
             {"block_id": self.block_id, "user_id": self.user_id}
         ).sort("created_at", -1).limit(limit))
@@ -822,7 +671,7 @@ class BaseBlockHandler(ABC):
             "title": """
             Create a clear, concise title (MAX 30 WORDS) that captures the essence of this concept.
             The title should be memorable and specific.
-            Return only the title text without double quotation, without any explanation.
+            Return only the title text without quotes, without any explanation.
             IMPORTANT: The title MUST be 30 words or fewer.
             """,
             
@@ -835,38 +684,38 @@ class BaseBlockHandler(ABC):
             """,
             
             "stakeholders": """
-            List 4-8 key stakeholders relevant to this concept.
-            Include individuals, groups, or organizations that are directly or indirectly involved. (e.g., UI/UX Designer, Product Manager, etc.)
-            Format as a simple list.
+            Identify 4-8 key stakeholders relevant to this concept.
+            Include individuals, groups, or organizations directly affected or involved.
+            Format as a simple list without complex descriptions.
+            Avoid political, controversial, or sensitive content.
             """,
             
             "tags": """
-            List 3-6 relevant tags or keywords for this concept.
-            These should be specific and relevant to the topic. (e.g., Technology Innovation, Sustainability, etc.)
+            Create 3-6 relevant tags or keywords for this concept.
+            These should be specific and relevant to the topic.
             Format as a list of single words or short phrases.
             """,
             
             "assumptions": """
             List 3-5 key assumptions underlying this concept.
             These should be foundational beliefs or premises that guide the concept's development.
-            Format as short, clear statements without bullet points or numbers.
+            Format as short, clear statements.
             """,
             
             "constraints": """
             List 3-5 key constraints or limitations affecting this concept.
-            Format as short, clear statements without bullet points or numbers.
+            Format as short, clear statements.
             """,
             
             "risks": """
             List 3-5 potential risks or challenges.
-            Format as short, clear statements without bullet points or numbers.
+            Format as short, clear statements.
             """,
             
             "areas": """
             List 4-8 fields, disciplines, or domains connected to this concept.
             Include a note about the reach (e.g., global, regional).
-            """
-            ,
+            """,
             
             "impact": """
             List 3-5 key impacts or benefits.
@@ -894,16 +743,6 @@ class BaseBlockHandler(ABC):
         return guidelines.get(step, f"Generate appropriate content for {step}")
     
     def _get_previous_content(self, history):
-        """
-        Extract previously generated content from history
-        Prioritizing the most recent content for each step
-        
-        Args:
-            history: Conversation history
-            
-        Returns:
-            dict: Dictionary of previously generated content by step
-        """
         content = {}
         
         # Process history in reverse chronological order to get the most recent content first
