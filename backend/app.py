@@ -198,7 +198,8 @@ def analyze_general_chat():
 @app.route('/api/analysis_of_block', methods=['POST'])
 def analyze_existing_block():
     """
-    Endpoint for continuing conversation with an existing block
+    Enhanced endpoint for continuing conversation with an existing block
+    Uses improved history retention and context awareness
     """
     data = request.json
     user_id = data.get('user_id')
@@ -233,7 +234,7 @@ def analyze_existing_block():
         handler_class = block_handlers[block_type]
         handler = handler_class(db, block_id, user_id)
         
-        # Process the message
+        # Process the message with improved history utilization
         response = handler.process_message(user_input, flow_data["flow_status"])
         
         # Sanitize response to ensure plain text
@@ -275,13 +276,13 @@ def analyze_existing_block():
                 # Keep a copy before removing it from response
                 updated_flow_status = response["updated_flow_status"].copy()
                 
-                # Remove this from internal flow status from response before sending to client
+                # Remove internal flow status from response before sending to client
                 response.pop("updated_flow_status", None)
             
             # Get the suggestion for the message content
             suggestion = response.get("suggestion", "")
             
-            # Get the current step content if any
+            # Get the current step content if any (with improved title/abstract context)
             current_step = None
             for step in STANDARD_FLOW_STEPS:
                 if step in response and response[step] is not None:
@@ -312,7 +313,7 @@ def analyze_existing_block():
                 else:
                     display_message = f"{response[current_step]}\n\n{suggestion}"
             
-            # Store assistant response in history
+            # Store assistant response in history with full context
             history_collection.insert_one({
                 "user_id": user_id,
                 "block_id": block_id,

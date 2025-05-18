@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class ProblemBlockHandler(BaseBlockHandler):
     """
-    Handler for the Problem block type with concise conversational flow
+    Enhanced handler for the Problem block type with improved conversation history utilization
     """
     
     def initialize_block(self, user_input):
@@ -106,6 +106,7 @@ class ProblemBlockHandler(BaseBlockHandler):
     def process_message(self, user_message, flow_status):
         """
         Process a user message for a problem block based on current flow status
+        Using enhanced history and context utilization from BaseBlockHandler
         
         Args:
             user_message: Message from the user
@@ -114,5 +115,5 @@ class ProblemBlockHandler(BaseBlockHandler):
         Returns:
             dict: Response with results and next step suggestion
         """
-        # Use the base implementation that follows the standardized flow
+        # Use the enhanced base implementation that utilizes conversation history
         return super().process_message(user_message, flow_status)

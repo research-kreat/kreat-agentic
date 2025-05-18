@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class IdeaBlockHandler(BaseBlockHandler):
     """
-    Handler for the Idea block type with concise conversational flow
+    Enhanced handler for the Idea block type with improved conversation history utilization
     """
     
     def initialize_block(self, user_input):
@@ -115,5 +115,5 @@ class IdeaBlockHandler(BaseBlockHandler):
         Returns:
             dict: Response with results and next step suggestion
         """
-        # Use the base implementation that follows the standardized flow
+        # Use the enhanced base implementation that utilizes conversation history
         return super().process_message(user_message, flow_status)
