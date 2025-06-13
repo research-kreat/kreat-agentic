@@ -1,8 +1,8 @@
 from crewai import Agent, Task, Crew, Process
-from crewai import LLM
 import logging
 import json
 import re
+from helpers import llm
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,7 @@ def classify_user_input(user_input):
         return "general", 5, True, "What would you like to explore today?"
     
     try:
-        # Initialize LLM
-        llm = LLM(
-            model="azure/gpt-4o-mini", 
-            temperature=0.2
-        )
+        llm = llm.get_crewai_llm()
         
         # Create classification agent
         classification_agent = Agent(

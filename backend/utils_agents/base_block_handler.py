@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 import logging
 from crewai import Agent, Task, Crew, Process
-from crewai import LLM
 import json
 import re
+from helpers import llm
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +26,7 @@ class BaseBlockHandler(ABC):
         self.flow_collection = db.flow_status
         self.history_collection = db.conversation_history
         
-        # Initialize LLM with moderate temperature for creativity
-        self.llm = LLM(
-            model="azure/gpt-4o-mini",
-            temperature=0.7
-        )
+        self.llm = llm.get_crewai_llm()
         
         # Standard flow steps in the correct order
         self.flow_steps = [
@@ -161,7 +157,7 @@ class BaseBlockHandler(ABC):
             return self.handle_greeting(user_message, block_type)
         
         # Get conversation history and previous content
-        history = self._get_conversation_history()
+        history = self._get_conversation_history(5)
         previous_content = self._get_previous_content(history)
         
         # Determine if user is confirming to proceed with current step

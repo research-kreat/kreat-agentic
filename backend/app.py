@@ -34,9 +34,9 @@ CORS(app)
 
 # MongoDB configuration
 MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+MONGO_KRAFT_DB = os.getenv("MONGO_KRAFT_DB")
 client = MongoClient(MONGO_URI)
-db = client[MONGO_DB_NAME]
+db = client[MONGO_KRAFT_DB]
 
 # Collections
 flow_collection = db.flow_status

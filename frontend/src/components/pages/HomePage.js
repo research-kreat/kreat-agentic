@@ -171,7 +171,7 @@ export default function Home() {
               icon="fa-history" 
               title="Block History" 
               description="View previous conversations" 
-              active={false} 
+              active={true} 
             />
             
             <AgentCard 
